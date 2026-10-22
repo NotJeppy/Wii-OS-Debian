@@ -7,11 +7,12 @@ param(
   [switch]$Restart,
   [switch]$Install
 )
-$ErrorActionPreference = "Stop"
+# Native commands write progress to stderr; failures are caught by exit code.
+$ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
 
 # cmd keeps the tar stream binary; a PowerShell 5.1 pipe would mangle it.
-cmd /c "tar -cf - bin system wiid ui | ssh $Target ""rm -rf ~/wii-os && mkdir -p ~/wii-os && tar -xmf - -C ~/wii-os && sed -i 's/\r$//' ~/wii-os/bin/* ~/wii-os/system/*.sh ~/wii-os/wiid/*.py && chmod +x ~/wii-os/bin/* ~/wii-os/system/*.sh"""
+cmd /c "tar -cf - bin system wiid ui | ssh $Target ""rm -rf ~/wii-os && mkdir -p ~/wii-os && tar -xmf - -C ~/wii-os && sed -i 's/\r$//' ~/wii-os/bin/* ~/wii-os/system/*.sh ~/wii-os/system/*.py ~/wii-os/wiid/*.py && chmod +x ~/wii-os/bin/* ~/wii-os/system/*.sh"""
 if ($LASTEXITCODE -ne 0) { throw "copy failed" }
 Write-Host "Copied to $Target"
 

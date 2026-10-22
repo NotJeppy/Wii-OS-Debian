@@ -46,6 +46,9 @@ fi
 echo "==> Native channel apps (Flathub)"
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 flatpak install -y --noninteractive flathub tv.plex.PlexHTPC
+# Plex HTPC only asks for X11. Under Xwayland its video layer stays black
+# behind the interface, so let it use Wayland directly.
+flatpak override --socket=wayland --env=QT_QPA_PLATFORM=wayland tv.plex.PlexHTPC
 
 echo "==> Input access (controller + virtual keyboard)"
 usermod -aG input,video,render,audio "$USER_NAME"
@@ -88,6 +91,15 @@ EOF
 fi
 chown "$USER_NAME:$USER_NAME" "$PROFILE"
 chmod +x "$OS_DIR"/bin/*
+
+echo "==> Invisible mouse cursor"
+# Controller receivers often also show up as a mouse, which puts a cursor in
+# the middle of the screen. start-session selects this theme; the "default"
+# override covers anything that ignores XCURSOR_THEME (like cage itself).
+python3 "$OS_DIR/system/make-blank-cursors.py" /usr/share/icons/wii-os-blank
+mkdir -p "$HOME_DIR/.local/share/icons/default"
+printf '[Icon Theme]\nInherits=wii-os-blank\n' > "$HOME_DIR/.local/share/icons/default/index.theme"
+chown -R "$USER_NAME:$USER_NAME" "$HOME_DIR/.local"
 
 systemctl daemon-reload 2>/dev/null || true
 

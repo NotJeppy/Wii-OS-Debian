@@ -29,7 +29,7 @@ trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/wii-os"
 cp -r "$ROOT/bin" "$ROOT/system" "$ROOT/wiid" "$ROOT/ui" "$ROOT/LICENSE" "$ROOT/README.md" "$STAGE/wii-os/"
-sed -i 's/\r$//' "$STAGE/wii-os/bin/"* "$STAGE/wii-os/system/"*.sh "$STAGE/wii-os/wiid/"*.py
+sed -i 's/\r$//' "$STAGE/wii-os/bin/"* "$STAGE/wii-os/system/"*.sh "$STAGE/wii-os/system/"*.py "$STAGE/wii-os/wiid/"*.py
 chmod +x "$STAGE/wii-os/bin/"* "$STAGE/wii-os/system/"*.sh
 
 cp "$ROOT/build/preseed.cfg" "$STAGE/preseed.cfg"

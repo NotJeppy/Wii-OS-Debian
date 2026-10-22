@@ -7,4 +7,5 @@ LOG_DIR="$HOME/.local/state/wii-os"
 mkdir -p "$LOG_DIR"
 [ -f "$LOG_DIR/wiid.log" ] && mv "$LOG_DIR/wiid.log" "$LOG_DIR/wiid.log.1"
 sleep 1
+export XCURSOR_THEME=wii-os-blank  # no pointer on the TV (see system/install.sh)
 exec cage -d -s -- python3 "$OS_DIR/wiid/wiid.py" >"$LOG_DIR/wiid.log" 2>&1
