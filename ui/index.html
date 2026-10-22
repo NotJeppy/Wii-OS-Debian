@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>wii-os</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+
+  <main id="menu">
+    <div id="grid"></div>
+    <div class="page-arrow left" id="arrow-prev" hidden></div>
+    <div class="page-arrow right" id="arrow-next" hidden></div>
+
+    <svg id="bar" viewBox="0 0 1920 280" aria-hidden="true">
+      <defs>
+        <linearGradient id="bar-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f7f7f9"/>
+          <stop offset="1" stop-color="#d9dadf"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#bar-fill)" d="M0,44 H330 C450,44 450,118 570,118 H1350 C1470,118 1470,44 1590,44 H1920 V280 H0 Z"/>
+      <path class="bar-glow" d="M0,44 H330 C450,44 450,118 570,118 H1350 C1470,118 1470,44 1590,44 H1920"/>
+      <path class="bar-line" d="M0,44 H330 C450,44 450,118 570,118 H1350 C1470,118 1470,44 1590,44 H1920"/>
+    </svg>
+
+    <div id="clock" aria-label="time"></div>
+    <div id="date"></div>
+
+    <div class="round-btn" id="btn-system"><span>OS</span></div>
+    <div class="round-btn" id="btn-mail">
+      <svg viewBox="0 0 64 48" aria-hidden="true">
+        <rect x="3" y="3" width="58" height="42" rx="6"/>
+        <path d="M5,7 L32,28 L59,7"/>
+      </svg>
+    </div>
+  </main>
+
+  <section id="preview" hidden>
+    <div id="preview-banner"></div>
+    <div id="preview-bar">
+      <div class="pill" id="pv-menu">Menu</div>
+      <div class="pill" id="pv-start">Start</div>
+    </div>
+  </section>
+
+  <section id="panel" hidden>
+    <div class="card">
+      <h1 id="panel-title"></h1>
+      <div id="panel-body"></div>
+      <div id="panel-actions"></div>
+    </div>
+  </section>
+
+  <div id="hand" aria-hidden="true">
+    <svg viewBox="0 0 100 124">
+      <g class="hand-outline">
+        <rect x="36" y="4" width="24" height="64" rx="12"/>
+        <circle cx="68" cy="56" r="11"/>
+        <circle cx="80" cy="64" r="10"/>
+        <ellipse cx="24" cy="74" rx="11" ry="19" transform="rotate(-32 24 74)"/>
+        <rect x="24" y="48" width="66" height="60" rx="24"/>
+        <rect x="34" y="100" width="46" height="18" rx="6"/>
+      </g>
+      <g class="hand-fill">
+        <rect x="36" y="4" width="24" height="64" rx="12"/>
+        <circle cx="68" cy="56" r="11"/>
+        <circle cx="80" cy="64" r="10"/>
+        <ellipse cx="24" cy="74" rx="11" ry="19" transform="rotate(-32 24 74)"/>
+        <rect x="24" y="48" width="66" height="60" rx="24"/>
+      </g>
+      <rect class="hand-cuff" x="34" y="100" width="46" height="18" rx="6"/>
+    </svg>
+  </div>
+
+  <div id="flash"></div>
+
+  <section id="welcome">
+    <h1>wii-os</h1>
+    <div class="rule"></div>
+    <p>A homemade TV menu.<br>Use the D-pad to move, <b>A</b> to choose, <b>B</b> to go back,<br>and <b>Home</b> to return here from any channel.</p>
+    <p class="press">Press <span class="key-a">A</span> to continue.</p>
+  </section>
+
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

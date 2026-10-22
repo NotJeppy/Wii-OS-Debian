@@ -1,0 +1,46 @@
+# Builds the installer ISO on every push to main and publishes it as a
+# GitHub Release, so the latest release is always the latest code.
+name: Build and release ISO
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xorriso
+
+      - name: Pick a version
+        id: version
+        run: |
+          echo "tag=v$(date -u +%Y.%m.%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ISO
+        run: bash build/build-iso.sh "out/Wii-OS-${{ steps.version.outputs.tag }}.iso"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          DEBIAN_ISO="$(grep -oE 'debian-[0-9.]+-amd64-netinst\.iso' out/cache/SHA256SUMS | head -1)"
+          sed -e "s|@DEBIAN_ISO@|$DEBIAN_ISO|" -e "s|@COMMIT@|${GITHUB_SHA::7}|" \
+            build/release-notes.md > out/notes.md
+          gh release create "$TAG" \
+            out/Wii-OS-"$TAG".iso out/Wii-OS-"$TAG".iso.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Wii-OS $TAG" \
+            --notes-file out/notes.md

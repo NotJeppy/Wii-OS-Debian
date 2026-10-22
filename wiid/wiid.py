@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+"""wiid: the wii-os session daemon.
+
+Runs inside cage as its only client process. It
+  - serves the menu UI and a small JSON API on 127.0.0.1,
+  - keeps the menu browser running and launches channels on top of it,
+  - turns controllers into keyboard input, so the menu and every channel
+    are driven the same way, and handles the Home button itself.
+"""
+import json
+import os
+import signal
+import socket
+import subprocess
+import threading
+import time
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import evdev
+from evdev import UInput, ecodes as e
+
+ROOT = Path(__file__).resolve().parent.parent
+UI_DIR = ROOT / "ui"
+CHANNELS_FILE = ROOT / "wiid" / "channels.json"
+STATE_DIR = Path.home() / ".local/share/wii-os"
+PORT = 8770
+MENU_URL = f"http://127.0.0.1:{PORT}/"
+
+CHROMIUM_FLAGS = [
+    "--ozone-platform=wayland",
+    "--kiosk",
+    "--no-first-run",
+    "--noerrdialogs",
+    "--disable-infobars",
+    "--password-store=basic",
+    "--hide-scrollbars",
+    "--autoplay-policy=no-user-gesture-required",
+    "--check-for-update-interval=31536000",
+    "--disable-features=Translate,MediaRouter",
+    "--enable-features=AcceleratedVideoDecodeLinuxGL",
+]
+
+
+def log(*args):
+    print(time.strftime("%H:%M:%S"), *args, flush=True)
+
+
+def load_channels():
+    with open(CHANNELS_FILE, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def chromium(profile, url, extra=(), browser="chromium"):
+    cmd = [browser, *CHROMIUM_FLAGS, f"--user-data-dir={STATE_DIR / 'profiles' / profile}", *extra, f"--app={url}"]
+    return subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def stop(proc, timeout=4):
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+class Session:
+    """The menu browser plus at most one running channel on top of it."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.menu = None
+        self.channel = None
+        self.channel_id = None
+        self.channel_stop = None  # extra command that closes a native app for good
+
+    def keep_menu_alive(self):
+        display = Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"]
+        while True:
+            if not display.exists():
+                # cage is shutting down and waits for us to exit first.
+                log("display gone, exiting")
+                return
+            if self.menu is None or self.menu.poll() is not None:
+                log("starting menu")
+                self.menu = chromium("menu", MENU_URL)
+            with self.lock:
+                if self.channel is not None and self.channel.poll() is not None:
+                    log(f"channel {self.channel_id} exited")
+                    self.channel = self.channel_id = self.channel_stop = None
+            time.sleep(1)
+
+    def launch(self, channel_id):
+        channel = next((c for c in load_channels() if c["id"] == channel_id), None)
+        if channel is None:
+            return False
+        with self.lock:
+            self._close_channel()
+            log(f"launching {channel_id}")
+            if "command" in channel:
+                # A native app rather than a web page.
+                self.channel = subprocess.Popen(channel["command"], start_new_session=True,
+                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                extra = [f"--user-agent={channel['user_agent']}"] if channel.get("user_agent") else []
+                if channel.get("spatial_navigation"):
+                    extra.append("--enable-spatial-navigation")  # arrow keys move between links
+                # Google Chrome carries Widevine DRM; Debian's Chromium does not.
+                browser = "google-chrome-stable" if channel.get("drm") else "chromium"
+                self.channel = chromium(channel_id, channel["url"], extra, browser)
+            self.channel_id = channel_id
+            self.channel_stop = channel.get("stop")
+        return True
+
+    def _close_channel(self):
+        stop(self.channel)
+        if self.channel_stop:
+            subprocess.run(self.channel_stop, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.channel = self.channel_id = self.channel_stop = None
+
+    def home(self):
+        with self.lock:
+            if self.channel is not None:
+                log(f"home: closing {self.channel_id}")
+            self._close_channel()
+
+    def restart_menu(self):
+        self.home()
+        stop(self.menu)  # keep_menu_alive starts a fresh one
+
+    def state(self):
+        with self.lock:
+            return {"running": self.channel_id}
+
+
+SESSION = Session()
+
+
+def system_info():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))  # picks the outgoing interface; nothing is sent
+        ip = s.getsockname()[0]
+    except OSError:
+        ip = None
+    finally:
+        s.close()
+    return {"hostname": socket.gethostname(), "ip": ip}
+
+
+def power(action):
+    if action == "restart-menu":
+        threading.Thread(target=SESSION.restart_menu, daemon=True).start()
+    elif action in ("poweroff", "reboot"):
+        subprocess.Popen(["sudo", "-n", "/usr/bin/systemctl", action])
+    else:
+        return False
+    return True
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def send_json(self, data, status=200):
+        body = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def do_GET(self):
+        if self.path == "/api/channels":
+            self.send_json(load_channels())
+        elif self.path == "/api/state":
+            self.send_json(SESSION.state())
+        elif self.path == "/api/system":
+            self.send_json(system_info())
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        body = self.read_json()
+        if self.path == "/api/launch":
+            ok = SESSION.launch(body.get("id"))
+        elif self.path == "/api/home":
+            SESSION.home()
+            ok = True
+        elif self.path == "/api/power":
+            ok = power(body.get("action"))
+        else:
+            self.send_json({"error": "not found"}, 404)
+            return
+        self.send_json({"ok": ok}, 200 if ok else 400)
+
+
+# Controller -> keyboard. Held keys auto-repeat in the browser, like a remote.
+BUTTON_KEYS = {
+    e.BTN_SOUTH: e.KEY_ENTER,      # A: select
+    e.BTN_EAST: e.KEY_ESC,         # B: back
+    e.BTN_START: e.KEY_ENTER,
+    e.BTN_TL: e.KEY_PAGEUP,        # bumpers: previous / next page
+    e.BTN_TR: e.KEY_PAGEDOWN,
+}
+HAT_KEYS = {
+    e.ABS_HAT0X: (e.KEY_LEFT, e.KEY_RIGHT),
+    e.ABS_HAT0Y: (e.KEY_UP, e.KEY_DOWN),
+}
+STICK_KEYS = {
+    e.ABS_X: (e.KEY_LEFT, e.KEY_RIGHT),
+    e.ABS_Y: (e.KEY_UP, e.KEY_DOWN),
+}
+STICK_ON, STICK_OFF = 0.6, 0.35  # hysteresis, as a fraction of full tilt
+
+
+class Keyboard:
+    def __init__(self):
+        keys = set(BUTTON_KEYS.values())
+        for pair in (*HAT_KEYS.values(), *STICK_KEYS.values()):
+            keys.update(pair)
+        self.ui = UInput({e.EV_KEY: sorted(keys)}, name="wii-os controller keys")
+        self.lock = threading.Lock()
+
+    def set(self, key, down):
+        with self.lock:
+            self.ui.write(e.EV_KEY, key, 1 if down else 0)
+            self.ui.syn()
+
+
+def is_gamepad(dev):
+    caps = dev.capabilities()
+    return e.BTN_SOUTH in caps.get(e.EV_KEY, []) and e.EV_ABS in caps
+
+
+def read_gamepad(path, keyboard, active):
+    try:
+        dev = evdev.InputDevice(path)
+        dev.grab()  # the browser must not also see the raw gamepad
+    except OSError as err:
+        log(f"cannot open {path}: {err}")
+        active.discard(path)
+        return
+    log(f"controller connected: {dev.name}")
+    ranges = {code: (info.min, info.max) for code, info in dev.capabilities()[e.EV_ABS]}
+    stick = {}  # axis -> key currently held by that axis
+    try:
+        for ev in dev.read_loop():
+            if ev.type == e.EV_KEY:
+                if ev.code == e.BTN_MODE:
+                    if ev.value == 1:
+                        threading.Thread(target=SESSION.home, daemon=True).start()
+                elif ev.code in BUTTON_KEYS and ev.value in (0, 1):
+                    keyboard.set(BUTTON_KEYS[ev.code], ev.value == 1)
+            elif ev.type == e.EV_ABS and ev.code in HAT_KEYS:
+                neg, pos = HAT_KEYS[ev.code]
+                keyboard.set(neg, ev.value < 0)
+                keyboard.set(pos, ev.value > 0)
+            elif ev.type == e.EV_ABS and ev.code in STICK_KEYS:
+                lo, hi = ranges[ev.code]
+                mid, half = (lo + hi) / 2, (hi - lo) / 2
+                tilt = (ev.value - mid) / half
+                neg, pos = STICK_KEYS[ev.code]
+                held = stick.get(ev.code)
+                want = neg if tilt < -STICK_ON else pos if tilt > STICK_ON else None
+                if held and abs(tilt) > STICK_OFF and (want is None or want == held):
+                    continue  # still inside the hysteresis band
+                if want != held:
+                    if held:
+                        keyboard.set(held, False)
+                    if want:
+                        keyboard.set(want, True)
+                    stick[ev.code] = want
+    except OSError:
+        log(f"controller disconnected: {dev.name}")
+    finally:
+        for key in stick.values():
+            if key:
+                keyboard.set(key, False)
+        active.discard(path)
+
+
+def watch_gamepads():
+    keyboard = Keyboard()
+    active = set()
+    while True:
+        for path in evdev.list_devices():
+            if path in active:
+                continue
+            try:
+                dev = evdev.InputDevice(path)
+                pad = is_gamepad(dev) and dev.name != keyboard.ui.name
+                dev.close()
+            except OSError:
+                continue
+            if pad:
+                active.add(path)
+                threading.Thread(target=read_gamepad, args=(path, keyboard, active), daemon=True).start()
+        time.sleep(2)
+
+
+def main():
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), partial(Handler, directory=str(UI_DIR)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log(f"serving menu on {MENU_URL}")
+    threading.Thread(target=watch_gamepads, daemon=True).start()
+
+    def shutdown(*_):
+        SESSION.home()
+        stop(SESSION.menu)
+        os._exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    SESSION.keep_menu_alive()
+    shutdown()
+
+
+if __name__ == "__main__":
+    main()

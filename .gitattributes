@@ -1,2 +1,5 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Store and check out text files with LF endings: the shell scripts and
+# Python run on Linux and break with Windows line endings.
+* text=auto eol=lf
+*.png binary
+*.iso binary

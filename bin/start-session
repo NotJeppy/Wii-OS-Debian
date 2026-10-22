@@ -1,0 +1,10 @@
+#!/bin/bash
+# Runs on tty1 after auto-login (see system/install.sh): starts the kiosk
+# compositor with wiid as its only client. When it exits, getty logs in
+# again and this runs once more.
+OS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_DIR="$HOME/.local/state/wii-os"
+mkdir -p "$LOG_DIR"
+[ -f "$LOG_DIR/wiid.log" ] && mv "$LOG_DIR/wiid.log" "$LOG_DIR/wiid.log.1"
+sleep 1
+exec cage -d -s -- python3 "$OS_DIR/wiid/wiid.py" >"$LOG_DIR/wiid.log" 2>&1
