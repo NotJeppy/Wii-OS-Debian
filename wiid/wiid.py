@@ -21,6 +21,8 @@ from pathlib import Path
 import evdev
 from evdev import UInput, ecodes as e
 
+from updates import Updater
+
 ROOT = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT / "ui"
 CHANNELS_FILE = ROOT / "wiid" / "channels.json"
@@ -139,6 +141,8 @@ class Session:
 
 
 SESSION = Session()
+# After an update, exit: cage exits with us and getty starts the new version.
+UPDATER = Updater(ROOT, STATE_DIR, log, on_installed=lambda: os.kill(os.getpid(), signal.SIGTERM))
 
 
 def system_info():
@@ -150,7 +154,7 @@ def system_info():
         ip = None
     finally:
         s.close()
-    return {"hostname": socket.gethostname(), "ip": ip}
+    return {"hostname": socket.gethostname(), "ip": ip, "version": UPDATER.version}
 
 
 def power(action):
@@ -190,12 +194,22 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(SESSION.state())
         elif self.path == "/api/system":
             self.send_json(system_info())
+        elif self.path == "/api/update":
+            self.send_json(UPDATER.state())
         else:
             super().do_GET()
 
     def do_POST(self):
         body = self.read_json()
-        if self.path == "/api/launch":
+        if self.path == "/api/update/check":
+            self.send_json(UPDATER.check_now())
+            return
+        if self.path == "/api/update/decline":
+            UPDATER.decline()
+            ok = True
+        elif self.path == "/api/update/install":
+            ok = UPDATER.install()
+        elif self.path == "/api/launch":
             ok = SESSION.launch(body.get("id"))
         elif self.path == "/api/home":
             SESSION.home()
@@ -318,6 +332,7 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     log(f"serving menu on {MENU_URL}")
     threading.Thread(target=watch_gamepads, daemon=True).start()
+    threading.Thread(target=UPDATER.loop, daemon=True).start()
 
     def shutdown(*_):
         SESSION.home()

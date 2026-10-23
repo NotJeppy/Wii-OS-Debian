@@ -187,6 +187,64 @@ html, body {
   box-shadow: 0 0 0 6px var(--blue-soft), 0 0 30px rgba(52,177,232,0.5);
 }
 
+/* While updating, a message replaces the two pills. */
+#pv-status { display: none; text-align: center; }
+#preview.busy .pill { display: none; }
+#preview.busy #pv-status { display: block; }
+#pv-status-title { font-size: 54px; font-weight: 700; color: var(--ink); }
+#pv-status-detail { margin-top: 10px; font-size: 34px; color: var(--ink-soft); }
+
+/* ---------- update prompt banner ---------- */
+
+.banner-update {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(52,177,232,0.18), transparent 60%),
+    linear-gradient(#ffffff, #eef0f3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 40px !important;
+  color: var(--ink);
+}
+.banner-update h2 { margin: 26px 0 6px; font-size: 76px; font-weight: 700; }
+.banner-update .up-version { margin: 0 0 30px; font-size: 44px; color: var(--blue); font-weight: 700; }
+.banner-update ul { margin: 0; padding: 0; list-style: none; line-height: 1.55; color: var(--ink-soft); }
+.banner-update li::before { content: "• "; color: var(--blue); }
+.banner-update .up-hint { margin: 34px 0 0; font-size: 32px; color: var(--ink-soft); }
+/* A round badge with an upward arrow. */
+.banner-update .up-icon {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 6px solid var(--blue);
+  background: radial-gradient(circle at 50% 30%, #fff, #e3f4fc);
+  box-shadow: 0 0 0 10px var(--blue-soft);
+}
+.banner-update .up-icon::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 30px;
+  transform: translateX(-50%);
+  border-left: 36px solid transparent;
+  border-right: 36px solid transparent;
+  border-bottom: 40px solid var(--blue);
+}
+.banner-update .up-icon::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 68px;
+  width: 26px;
+  height: 46px;
+  transform: translateX(-50%);
+  border-radius: 0 0 6px 6px;
+  background: var(--blue);
+}
+
 /* ---------- panels (system, messages) ---------- */
 
 #panel {
@@ -209,7 +267,8 @@ html, body {
 #panel-body { font-size: 40px; line-height: 1.5; text-align: center; margin-bottom: 40px; color: var(--ink-soft); }
 #panel-body b { color: var(--ink); }
 #panel-actions { display: flex; flex-direction: column; align-items: center; gap: 22px; }
-#panel-actions .pill { width: 620px; height: 104px; font-size: 46px; }
+#panel-actions { gap: 18px; }
+#panel-actions .pill { width: 620px; height: 88px; font-size: 42px; }
 
 @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 

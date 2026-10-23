@@ -1,3 +1,5 @@
+![Wii-OS](https://raw.githubusercontent.com/NotJeppy/Playlist-Ids/a167a0bc285c28dae24561f6b2c10c8f44bfaaab/jeppy/tv.png)
+
 # Wii-OS
 
 A fan-made, Wii-style TV menu that runs as the whole user interface of a PC,
@@ -46,6 +48,27 @@ bash build/build-iso.sh out/wii-os.iso
 
 Every push to `main` builds the ISO with GitHub Actions
 (`.github/workflows/release.yml`) and publishes it as a new release.
+
+## Updates
+
+There is no update server: GitHub Releases is the server. Each release
+carries the ISO plus a small update bundle (`wii-os-<version>.tar.gz` and its
+`.sha256`). Installed boxes ask GitHub's public API for the latest release
+every 6 hours (`wiid/updates.py`). When a newer one exists, the menu offers it
+the next time the home menu is on screen, never while a channel is open. The
+offer lists the release's "What's new" bullets, which CI fills in from the
+commit messages since the previous release.
+
+- **Update** runs `system/apply-update.sh` through sudo. It downloads the
+  bundle, checks its checksum, swaps it in for `/opt/wii-os`, re-runs
+  `install.sh` (which also installs any new packages), and restarts the
+  session. If anything fails, the previous version is put back.
+- **Not now** skips that version. The OS menu's **Check for updates** still
+  offers it.
+
+A box knows its version and repository from `VERSION` and `update.json`,
+which `build/stage.sh` writes. Copies deployed with `deploy.ps1` have neither,
+so they never update themselves.
 
 `WII_OS_TEST=1` builds a fully unattended ISO for VM tests. It wipes
 `/dev/vda` without asking, so never use it on real hardware.

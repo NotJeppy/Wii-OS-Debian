@@ -69,9 +69,10 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear --skip-login --nonewline --noissue %I \$TERM
 EOF
 
-echo "==> Power menu permissions"
+echo "==> Power menu and update permissions"
 cat > /etc/sudoers.d/wii-os-power <<EOF
 $USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
+$USER_NAME ALL=(root) NOPASSWD: $OS_DIR/system/apply-update.sh
 EOF
 chmod 440 /etc/sudoers.d/wii-os-power
 visudo -cf /etc/sudoers.d/wii-os-power

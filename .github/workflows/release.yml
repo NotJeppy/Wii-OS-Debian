@@ -1,6 +1,7 @@
-# Builds the installer ISO on every push to main and publishes it as a
-# GitHub Release, so the latest release is always the latest code.
-name: Build and release ISO
+# Builds the installer ISO and the update bundle on every push to main and
+# publishes them as a GitHub Release. Installed boxes check the latest release
+# and offer it as an update, so a release is all it takes to ship a change.
+name: Build and release
 
 on:
   push:
@@ -15,32 +16,56 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  iso:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history and tags, for the "What's new" list
 
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xorriso
 
       - name: Pick a version
         id: version
+        run: echo "tag=v$(date -u +%Y.%m.%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build update bundle
+        env:
+          WII_OS_VERSION: ${{ steps.version.outputs.tag }}
+          WII_OS_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          echo "tag=v$(date -u +%Y.%m.%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          bash build/stage.sh out/bundle
+          tar -czf "out/wii-os-$TAG.tar.gz" -C out/bundle wii-os
+          (cd out && sha256sum "wii-os-$TAG.tar.gz" > "wii-os-$TAG.tar.gz.sha256")
 
       - name: Build ISO
+        env:
+          WII_OS_VERSION: ${{ steps.version.outputs.tag }}
+          WII_OS_REPO: ${{ github.repository }}
         run: bash build/build-iso.sh "out/Wii-OS-${{ steps.version.outputs.tag }}.iso"
+
+      - name: Write release notes
+        run: |
+          PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="-10"; fi
+          DEBIAN_ISO="$(grep -oE 'debian-[0-9.]+-amd64-netinst\.iso' out/cache/SHA256SUMS | head -1)"
+          {
+            echo "## What's new"
+            git log --no-merges --pretty='- %s' $RANGE
+            echo
+            sed -e "s|@DEBIAN_ISO@|$DEBIAN_ISO|" -e "s|@COMMIT@|${GITHUB_SHA::7}|" build/release-notes.md
+          } > out/notes.md
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          DEBIAN_ISO="$(grep -oE 'debian-[0-9.]+-amd64-netinst\.iso' out/cache/SHA256SUMS | head -1)"
-          sed -e "s|@DEBIAN_ISO@|$DEBIAN_ISO|" -e "s|@COMMIT@|${GITHUB_SHA::7}|" \
-            build/release-notes.md > out/notes.md
           gh release create "$TAG" \
-            out/Wii-OS-"$TAG".iso out/Wii-OS-"$TAG".iso.sha256 \
+            "out/Wii-OS-$TAG.iso" "out/Wii-OS-$TAG.iso.sha256" \
+            "out/wii-os-$TAG.tar.gz" "out/wii-os-$TAG.tar.gz.sha256" \
             --target "$GITHUB_SHA" \
             --title "Wii-OS $TAG" \
             --notes-file out/notes.md

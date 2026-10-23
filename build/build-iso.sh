@@ -3,6 +3,7 @@
 # Wii-OS files and an answer file, and swaps in our boot menus. The result
 # boots on BIOS and UEFI like the original and installs over the network.
 #   build/build-iso.sh [out.iso]
+#   WII_OS_VERSION=... WII_OS_REPO=owner/name build/build-iso.sh   release build
 #   WII_OS_TEST=1 build/build-iso.sh test.iso   fully unattended, for VM tests
 # Needs: xorriso, wget, sha256sum.
 set -euo pipefail
@@ -27,10 +28,7 @@ echo "    using $ISO_NAME"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-mkdir -p "$STAGE/wii-os"
-cp -r "$ROOT/bin" "$ROOT/system" "$ROOT/wiid" "$ROOT/ui" "$ROOT/LICENSE" "$ROOT/README.md" "$STAGE/wii-os/"
-sed -i 's/\r$//' "$STAGE/wii-os/bin/"* "$STAGE/wii-os/system/"*.sh "$STAGE/wii-os/system/"*.py "$STAGE/wii-os/wiid/"*.py
-chmod +x "$STAGE/wii-os/bin/"* "$STAGE/wii-os/system/"*.sh
+bash "$ROOT/build/stage.sh" "$STAGE"  # honours WII_OS_VERSION / WII_OS_REPO
 
 cp "$ROOT/build/preseed.cfg" "$STAGE/preseed.cfg"
 EXTRA=""

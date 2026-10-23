@@ -10,11 +10,13 @@ const COLS = 4;
 
 let channels = [];
 let page = 0;
-let mode = "welcome"; // welcome | menu | preview | panel | running
+let mode = "welcome"; // welcome | menu | preview | panel | running | updating | update-failed
 let focus = { area: "grid", index: 0 }; // area: grid | buttons
+let preview = null; // { from, left, right, back }: tile it zoomed from (null = screen centre), pill actions
 let previewChannel = null;
-let previewFocus = 1; // 0 = Menu, 1 = Start
+let previewFocus = 1; // 0 = left pill (Menu), 1 = right pill (Start)
 let panel = null; // { actions, index, armed }
+let updateOffered = false; // the update prompt shows at most once per menu load
 
 // ---------- helpers ----------
 
@@ -81,6 +83,7 @@ function banner(channel) {
 // ---------- focus + hand ----------
 
 function focusedEl() {
+  if (mode === "updating" || mode === "update-failed") return null;
   if (mode === "preview") return [$("pv-menu"), $("pv-start")][previewFocus];
   if (mode === "panel") return $("panel-actions").children[panel.index];
   if (focus.area === "grid") return $("grid").children[focus.index];
@@ -173,26 +176,36 @@ function chooseInMenu() {
   }
   const channel = channels[page * PER_PAGE + focus.index];
   if (!channel) return play("bump");
-  openPreview(channel, $("grid").children[focus.index]);
+  previewChannel = channel;
+  openPreview(banner(channel), ["Menu", "Start"], $("grid").children[focus.index], {
+    left: closePreview,
+    right: startChannel,
+    back: closePreview,
+  });
 }
 
-// ---------- channel preview ----------
+// ---------- preview (a channel, or the update prompt) ----------
 
-function tileTransform(el) {
+// Where the preview zooms from and back to: a tile, or the middle of the screen.
+function zoomTransform(el) {
+  if (!el) return "translate(660px, 371px) scale(0.3125)";
   const r = rectInStage(el);
   return `translate(${r.x}px, ${r.y}px) scale(${r.w / 1920}, ${r.h / 1080})`;
 }
 
-function openPreview(channel, tile) {
-  previewChannel = channel;
+function openPreview(content, [leftLabel, rightLabel], from, actions) {
+  preview = { from, ...actions };
   previewFocus = 1;
   mode = "preview";
-  $("preview-banner").replaceChildren(banner(channel));
-  const preview = $("preview");
-  preview.hidden = false;
+  $("preview-banner").replaceChildren(content);
+  $("pv-menu").textContent = leftLabel;
+  $("pv-start").textContent = rightLabel;
+  showPreviewStatus(null);
+  const el = $("preview");
+  el.hidden = false;
   $("hand").classList.add("hidden");
-  const anim = preview.animate(
-    [{ transform: tileTransform(tile), opacity: 0.6 }, { transform: "none", opacity: 1 }],
+  const anim = el.animate(
+    [{ transform: zoomTransform(from), opacity: 0.6 }, { transform: "none", opacity: 1 }],
     { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" },
   );
   $("menu").classList.add("dim");
@@ -203,18 +216,24 @@ function openPreview(channel, tile) {
 
 function closePreview() {
   mode = "menu";
-  const preview = $("preview");
-  const tile = $("grid").children[focus.index];
+  const el = $("preview");
   $("menu").classList.remove("dim");
   play("close");
-  const anim = preview.animate(
-    [{ transform: "none", opacity: 1 }, { transform: tileTransform(tile), opacity: 0.4 }],
+  const anim = el.animate(
+    [{ transform: "none", opacity: 1 }, { transform: zoomTransform(preview.from), opacity: 0.4 }],
     { duration: 320, easing: "cubic-bezier(.5,0,.8,.5)" },
   );
   anim.onfinish = () => {
-    preview.hidden = true;
+    el.hidden = true;
     updateFocus();
   };
+}
+
+// Swaps the two pills for a message (or back, with null).
+function showPreviewStatus(title, detail = "") {
+  $("preview").classList.toggle("busy", title !== null);
+  $("pv-status-title").textContent = title ?? "";
+  $("pv-status-detail").textContent = detail;
 }
 
 async function startChannel() {
@@ -243,8 +262,91 @@ function waitForReturn() {
       clearInterval(timer);
       $("flash").classList.remove("on");
       closePreview();
+      setTimeout(offerUpdate, 1500);
     }
   }, 800);
+}
+
+// ---------- system updates ----------
+
+// Offers a new release, but only while the menu itself is on screen.
+async function offerUpdate() {
+  if (mode !== "menu" || updateOffered) return;
+  const state = await api("/api/update").catch(() => null);
+  if (state?.available && mode === "menu") showUpdatePrompt(state.available);
+}
+
+function updateBanner(release) {
+  const div = document.createElement("div");
+  div.className = "banner banner-update";
+  const title = document.createElement("h2");
+  title.textContent = "A system update is available";
+  const version = document.createElement("p");
+  version.className = "up-version";
+  version.textContent = `Wii-OS ${release.version}`;
+  const notes = document.createElement("ul");
+  notes.append(...release.notes.map((n) => {
+    const li = document.createElement("li");
+    li.textContent = n;
+    return li;
+  }));
+  const hint = document.createElement("p");
+  hint.className = "up-hint";
+  hint.textContent = "You can also update later from the OS menu.";
+  div.append(span("up-icon"), title, version, notes, hint);
+  return div;
+}
+
+function showUpdatePrompt(release) {
+  updateOffered = true;
+  const decline = () => {
+    api("/api/update/decline", {}).catch(() => null);
+    closePreview();
+  };
+  openPreview(updateBanner(release), ["Not now", "Update"], null, {
+    left: decline,
+    right: () => installUpdate(release),
+    back: decline,
+  });
+}
+
+async function installUpdate(release) {
+  mode = "updating";
+  play("start");
+  updateFocus();
+  showPreviewStatus(`Updating to ${release.version}...`,
+    "This takes a few minutes. Keep the TV on. It restarts by itself when it's done.");
+  const res = await api("/api/update/install", {}).catch(() => null);
+  if (!res?.ok) return updateFailed();
+  // On success wiid restarts the whole session, so this page just goes away.
+  const timer = setInterval(async () => {
+    const state = await api("/api/update").catch(() => null);
+    if (state?.status === "failed") {
+      clearInterval(timer);
+      updateFailed();
+    }
+  }, 2000);
+}
+
+function updateFailed() {
+  mode = "update-failed";
+  play("bump");
+  showPreviewStatus("The update didn't install.", "Nothing was changed. Press A to go back.");
+}
+
+async function checkForUpdates() {
+  $("panel-actions").children[panel.index].textContent = "Checking...";
+  const state = await api("/api/update/check", {}).catch(() => null);
+  if (state?.available) {
+    $("panel").hidden = true;
+    showUpdatePrompt(state.available);
+    return;
+  }
+  let message = `You're up to date (${state?.version}).`;
+  if (!state || state.error) {
+    message = state && !state.enabled ? "Updates are off on this copy." : "Couldn't reach the update server.";
+  }
+  openPanel("System update", [["", message]], [{ label: "Back", run: closePanel }]);
 }
 
 // ---------- panels ----------
@@ -309,8 +411,13 @@ async function power(action) {
 
 async function openSystemPanel() {
   const info = await api("/api/system").catch(() => ({}));
-  openPanel("wii-os", [["Name", info.hostname ?? "unknown"], ["Address", info.ip ?? "not connected"]], [
+  openPanel("wii-os", [
+    ["Name", info.hostname ?? "unknown"],
+    ["Address", info.ip ?? "not connected"],
+    ["Version", info.version ?? "development copy"],
+  ], [
     { label: "Back", run: closePanel },
+    { label: "Check for updates", run: checkForUpdates },
     { label: "Restart menu", run: () => power("restart-menu") },
     { label: "Restart", run: () => power("reboot"), confirm: true },
     { label: "Power off", run: () => power("poweroff"), confirm: true },
@@ -339,6 +446,7 @@ addEventListener("keydown", (ev) => {
         $("welcome").classList.add("gone");
         play("welcome");
         updateFocus();
+        setTimeout(offerUpdate, 1500);
       }
       break;
 
@@ -359,11 +467,15 @@ addEventListener("keydown", (ev) => {
         play("move");
         updateFocus();
       } else if (ok) {
-        if (previewFocus === 0) closePreview();
-        else startChannel();
+        if (previewFocus === 0) preview.left();
+        else preview.right();
       } else if (back) {
-        closePreview();
+        preview.back();
       }
+      break;
+
+    case "update-failed":
+      if (ok || back) closePreview();
       break;
 
     case "panel":
@@ -390,3 +502,4 @@ addEventListener("resize", fit);
 startClock($("clock"), $("date"));
 channels = await api("/api/channels").catch(() => []);
 renderGrid();
+setInterval(offerUpdate, 60 * 1000);
