@@ -4,10 +4,34 @@
 
 A fan-made, Wii-style TV menu that runs as the whole user interface of a PC,
 built on Debian 13. Plug a PC into your TV, pick up a controller, and get a
-channel grid with YouTube, Twitch, Plex, Netflix, Disney+ and Hulu.
+channel grid that starts with YouTube and the Channel Shop, where you can add
+Twitch, Plex, Netflix, Disney+ and Hulu.
 
 Not affiliated with or endorsed by Nintendo. No Nintendo assets are used:
-everything is drawn in code and the sounds are synthesized.
+everything is drawn in code and the menu sounds are synthesized. The Channel
+Shop's music (`ui/sounds/shop.mp3`) is an original cover made for this
+project, not official Nintendo music.
+
+## Controls
+
+| Button | What it does |
+|---|---|
+| D-pad / left stick | Move |
+| A | Choose |
+| B | Back |
+| X | Pick up a channel to move it (A or X puts it down, B cancels) |
+| Y | Channel options, such as deleting it (the Channel Shop can't be deleted) |
+| LB / RB | Previous / next page |
+| Home | Close the channel (or the shop) and return to the menu |
+
+On Netflix, Disney+ and Hulu, move to a text field and press **A** for the
+on-screen keyboard: the D-pad picks keys, **A** types, **B** closes it, **X**
+deletes and **Y** is shift. (YouTube and Twitch have their own on-screen
+keyboards, and Plex signs in with a code.) A real USB keyboard still works and
+never brings it up.
+
+The envelope button holds your messages: a permanent record of updates offered
+and installed and channels added. A red dot means some are unread.
 
 ## Install
 
@@ -19,22 +43,35 @@ the disk you choose, and it needs an internet connection.
 ## How it fits together
 
 - `system/install.sh` sets up a minimal Debian box: packages, Google Chrome
-  (for DRM), Plex HTPC, auto-login on tty1, controller access and power
-  permissions. The ISO runs it at the end of the install.
+  (for DRM), auto-login on tty1, controller access and power permissions. The
+  ISO runs it at the end of the install.
 - `bin/start-session` runs on login and starts **cage** (a kiosk Wayland
-  compositor) with `wiid` as its only client.
+  compositor) with `wiid` as its only client. Without a usable GPU it retries
+  with software rendering.
 - `wiid/wiid.py` serves the menu UI on `127.0.0.1:8770`, keeps the menu
   browser running, launches channels on top of it, and turns controllers into
-  keyboard input (D-pad/stick = arrows, A = Enter, B = Escape, bumpers =
-  PageUp/PageDown). Home closes the running channel.
-- `wiid/channels.json` lists channels. A channel is either a web page or a
-  native app:
+  keyboard input (D-pad/stick = arrows, A = Enter, B = Escape, X = `x`,
+  Y = `y`, bumpers = PageUp/PageDown). Home closes the running channel.
+- `wiid/channels.json` is the shop's catalog. A channel is either a web page
+  or a native app:
   - `url`: the page, opened in its own browser profile
   - `user_agent`: pretend to be a TV, to get a site's TV interface
   - `drm`: use Google Chrome, which has Widevine (Debian's Chromium doesn't)
   - `spatial_navigation`: let arrow keys move between links on desktop sites
+  - `keyboard`: inject the on-screen keyboard (`ui/osk.js`) into every page
+    and frame, through Chrome's DevTools pipe (`wiid/devtools.py`), in an
+    isolated world the site's scripts can't touch
   - `command` / `stop`: run a native app instead, and how to fully close it
-- `ui/` is the menu itself (plain HTML/CSS/JS).
+  - `flatpak` / `flatpak_overrides`: the Flathub app the shop downloads for
+    this user when they get the channel (removed again when they delete it)
+- `wiid/home.py` keeps each user's layout in `~/.local/share/wii-os/home.json`
+  (12 slots per page, channel id or empty) and handles getting and deleting
+  channels. New users start with YouTube and the built-in Channel Shop.
+- `wiid/messages.py` keeps the message board in
+  `~/.local/share/wii-os/messages.json`. Messages are never deleted.
+- `ui/` is the menu itself (plain HTML/CSS/JS): `app.js` (grid, move mode,
+  channel options, previews, updates), `shop.js`, `messages.js`, and
+  `core.js` for the shared focus and input handling.
 
 ## Building the ISO
 
@@ -63,8 +100,13 @@ commit messages since the previous release.
   bundle, checks its checksum, swaps it in for `/opt/wii-os`, re-runs
   `install.sh` (which also installs any new packages), and restarts the
   session. If anything fails, the previous version is put back.
-- **Not now** skips that version. The OS menu's **Check for updates** still
-  offers it.
+- **Not now** skips that version. The prompt doesn't come back, but the
+  message it left offers **Update now**, and so does the OS menu's **Check for
+  updates**.
+
+Every new version leaves a message when it's first seen, whether or not it's
+installed, and installing one leaves another, so users have a dated record of
+their updates.
 
 A box knows its version and repository from `VERSION` and `update.json`,
 which `build/stage.sh` writes. Copies deployed with `deploy.ps1` have neither,

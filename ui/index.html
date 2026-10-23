@@ -34,6 +34,7 @@
         <rect x="3" y="3" width="58" height="42" rx="6"/>
         <path d="M5,7 L32,28 L59,7"/>
       </svg>
+      <span id="mail-badge" hidden></span>
     </div>
   </main>
 
@@ -55,6 +56,33 @@
       <div id="panel-body"></div>
       <div id="panel-actions"></div>
     </div>
+  </section>
+
+  <section id="messages" hidden>
+    <div class="card">
+      <h1>Messages</h1>
+      <div id="msg-list"></div>
+      <div id="msg-detail" hidden>
+        <h2 id="msg-d-title"></h2>
+        <div id="msg-d-date"></div>
+        <div id="msg-d-body"></div>
+        <div id="msg-d-actions"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="shop" hidden>
+    <header>
+      <span class="shop-bag"></span>
+      <div>
+        <h1>Channel Shop</h1>
+        <p>Choose a channel to add it to your home menu.</p>
+      </div>
+    </header>
+    <div id="shop-window"><div id="shop-grid"></div></div>
+    <footer><span class="key-b">B</span> Back to the menu</footer>
+    <div id="shop-toast"></div>
+    <audio id="shop-music" src="sounds/shop.mp3" loop preload="auto"></audio>
   </section>
 
   <div id="hand" aria-hidden="true">
@@ -83,7 +111,10 @@
   <section id="welcome">
     <h1>wii-os</h1>
     <div class="rule"></div>
-    <p>A homemade TV menu.<br>Use the D-pad to move, <b>A</b> to choose, <b>B</b> to go back,<br>and <b>Home</b> to return here from any channel.</p>
+    <p>A homemade TV menu.<br>
+      Use the D-pad to move, <b>A</b> to choose and <b>B</b> to go back.<br>
+      On a channel, press <b>X</b> to move it and <b>Y</b> for its options.<br>
+      Press <b>Home</b> to return here from any channel.</p>
     <p class="press">Press <span class="key-a">A</span> to continue.</p>
   </section>
 

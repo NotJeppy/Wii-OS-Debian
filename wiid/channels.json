@@ -3,6 +3,7 @@
     "id": "youtube",
     "name": "YouTube",
     "banner": "youtube",
+    "description": "Videos, music and live streams, with the TV interface made for remotes.",
     "url": "https://www.youtube.com/tv",
     "user_agent": "Mozilla/5.0 (SMART-TV; Linux; Tizen 5.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/5.0 NativeTVAds Safari/538.1"
   },
@@ -10,6 +11,7 @@
     "id": "twitch",
     "name": "Twitch",
     "banner": "twitch",
+    "description": "Watch live streams of games, music and more.",
     "url": "https://android.tv.twitch.tv/",
     "user_agent": "Mozilla/5.0 (Linux; Android 12; BRAVIA 4K VH2 Build/STT1.211025.001.Z4; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.230 Mobile Safari/537.36"
   },
@@ -17,31 +19,50 @@
     "id": "plex",
     "name": "Plex",
     "banner": "plex",
-    "command": ["flatpak", "run", "tv.plex.PlexHTPC"],
-    "stop": ["flatpak", "kill", "tv.plex.PlexHTPC"]
+    "description": "Your own movies and shows from a Plex server, plus free movies and live TV. A large download.",
+    "flatpak": "tv.plex.PlexHTPC",
+    "flatpak_overrides": [
+      "--socket=wayland --env=QT_QPA_PLATFORM=wayland"
+    ],
+    "command": [
+      "flatpak",
+      "run",
+      "tv.plex.PlexHTPC"
+    ],
+    "stop": [
+      "flatpak",
+      "kill",
+      "tv.plex.PlexHTPC"
+    ]
   },
   {
     "id": "netflix",
     "name": "Netflix",
     "banner": "netflix",
+    "description": "Movies and series. Needs a Netflix account.",
     "url": "https://www.netflix.com/browse",
     "drm": true,
-    "spatial_navigation": true
+    "spatial_navigation": true,
+    "keyboard": true
   },
   {
     "id": "disney",
     "name": "Disney+",
     "banner": "disney",
+    "description": "Disney, Pixar, Marvel and Star Wars. Needs a Disney+ account.",
     "url": "https://www.disneyplus.com/home",
     "drm": true,
-    "spatial_navigation": true
+    "spatial_navigation": true,
+    "keyboard": true
   },
   {
     "id": "hulu",
     "name": "Hulu",
     "banner": "hulu",
+    "description": "TV series and movies. Needs a Hulu account.",
     "url": "https://www.hulu.com/hub/home",
     "drm": true,
-    "spatial_navigation": true
+    "spatial_navigation": true,
+    "keyboard": true
   }
 ]

@@ -2,4 +2,5 @@
 # Python run on Linux and break with Windows line endings.
 * text=auto eol=lf
 *.png binary
+*.mp3 binary
 *.iso binary

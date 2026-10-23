@@ -21,6 +21,9 @@ from pathlib import Path
 import evdev
 from evdev import UInput, ecodes as e
 
+from devtools import launch_with_script
+from home import Home
+from messages import Messages
 from updates import Updater
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,13 +52,11 @@ def log(*args):
     print(time.strftime("%H:%M:%S"), *args, flush=True)
 
 
-def load_channels():
-    with open(CHANNELS_FILE, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def chromium(profile, url, extra=(), browser="chromium"):
+def chromium(profile, url, extra=(), browser="chromium", keyboard=False):
     cmd = [browser, *CHROMIUM_FLAGS, f"--user-data-dir={STATE_DIR / 'profiles' / profile}", *extra, f"--app={url}"]
+    if keyboard:
+        # Sites with ordinary sign-in forms get the on-screen keyboard.
+        return launch_with_script(cmd, (UI_DIR / "osk.js").read_text(encoding="utf-8"), log)
     return subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -80,6 +81,7 @@ class Session:
         self.channel = None
         self.channel_id = None
         self.channel_stop = None  # extra command that closes a native app for good
+        self.home_presses = 0  # lets the menu notice Home while its own shop is open
 
     def keep_menu_alive(self):
         display = Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"]
@@ -98,9 +100,9 @@ class Session:
             time.sleep(1)
 
     def launch(self, channel_id):
-        channel = next((c for c in load_channels() if c["id"] == channel_id), None)
-        if channel is None:
-            return False
+        channel = HOME.channel(channel_id)
+        if channel is None or channel.get("builtin"):
+            return False  # built-in channels (the shop) run inside the menu itself
         with self.lock:
             self._close_channel()
             log(f"launching {channel_id}")
@@ -114,7 +116,7 @@ class Session:
                     extra.append("--enable-spatial-navigation")  # arrow keys move between links
                 # Google Chrome carries Widevine DRM; Debian's Chromium does not.
                 browser = "google-chrome-stable" if channel.get("drm") else "chromium"
-                self.channel = chromium(channel_id, channel["url"], extra, browser)
+                self.channel = chromium(channel_id, channel["url"], extra, browser, channel.get("keyboard", False))
             self.channel_id = channel_id
             self.channel_stop = channel.get("stop")
         return True
@@ -127,6 +129,7 @@ class Session:
 
     def home(self):
         with self.lock:
+            self.home_presses += 1
             if self.channel is not None:
                 log(f"home: closing {self.channel_id}")
             self._close_channel()
@@ -137,12 +140,14 @@ class Session:
 
     def state(self):
         with self.lock:
-            return {"running": self.channel_id}
+            return {"running": self.channel_id, "home_presses": self.home_presses}
 
 
 SESSION = Session()
+MESSAGES = Messages(STATE_DIR)
+HOME = Home(CHANNELS_FILE, STATE_DIR, log, MESSAGES)
 # After an update, exit: cage exits with us and getty starts the new version.
-UPDATER = Updater(ROOT, STATE_DIR, log, on_installed=lambda: os.kill(os.getpid(), signal.SIGTERM))
+UPDATER = Updater(ROOT, STATE_DIR, log, MESSAGES, on_installed=lambda: os.kill(os.getpid(), signal.SIGTERM))
 
 
 def system_info():
@@ -188,14 +193,20 @@ class Handler(SimpleHTTPRequestHandler):
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_GET(self):
-        if self.path == "/api/channels":
-            self.send_json(load_channels())
+        if self.path == "/api/home":
+            self.send_json(HOME.layout())
+        elif self.path == "/api/shop":
+            self.send_json(HOME.listing())
+        elif self.path == "/api/messages":
+            self.send_json(MESSAGES.all())
         elif self.path == "/api/state":
             self.send_json(SESSION.state())
         elif self.path == "/api/system":
             self.send_json(system_info())
         elif self.path == "/api/update":
             self.send_json(UPDATER.state())
+        elif self.path == "/api/update?all=1":  # including a declined version
+            self.send_json(UPDATER.state(include_declined=True))
         else:
             super().do_GET()
 
@@ -209,6 +220,15 @@ class Handler(SimpleHTTPRequestHandler):
             ok = True
         elif self.path == "/api/update/install":
             ok = UPDATER.install()
+        elif self.path == "/api/home":
+            ok = HOME.save_slots(body.get("slots", []))
+        elif self.path == "/api/shop/install":
+            ok = HOME.install(body.get("id"))
+        elif self.path == "/api/channels/remove":
+            ok = HOME.remove(body.get("id"))
+        elif self.path == "/api/messages/read":
+            MESSAGES.mark_read(body.get("id"))
+            ok = True
         elif self.path == "/api/launch":
             ok = SESSION.launch(body.get("id"))
         elif self.path == "/api/home":
@@ -226,6 +246,8 @@ class Handler(SimpleHTTPRequestHandler):
 BUTTON_KEYS = {
     e.BTN_SOUTH: e.KEY_ENTER,      # A: select
     e.BTN_EAST: e.KEY_ESC,         # B: back
+    e.BTN_X: e.KEY_X,              # X: move a channel (xpad reports X as BTN_X)
+    e.BTN_Y: e.KEY_Y,              # Y: channel options
     e.BTN_START: e.KEY_ENTER,
     e.BTN_TL: e.KEY_PAGEUP,        # bumpers: previous / next page
     e.BTN_TR: e.KEY_PAGEDOWN,
@@ -328,6 +350,14 @@ def watch_gamepads():
 
 def main():
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    if not MESSAGES.all()["messages"]:
+        MESSAGES.add(
+            "Welcome to Wii-OS",
+            "Get more channels from the Channel Shop. Press X on a channel to move it, "
+            "and Y for its options. Updates and new channels are recorded here.",
+            kind="welcome",
+        )
+    UPDATER.record_version()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), partial(Handler, directory=str(UI_DIR)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     log(f"serving menu on {MENU_URL}")

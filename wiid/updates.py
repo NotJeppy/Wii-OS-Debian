@@ -32,11 +32,13 @@ def whats_new(body, limit=6):
 
 
 class Updater:
-    def __init__(self, root, state_dir, log, on_installed):
+    def __init__(self, root, state_dir, log, messages, on_installed):
         self.root = root
         self.log = log
+        self.messages = messages
         self.on_installed = on_installed  # called after a successful install
         self.declined_file = state_dir / "update-declined"
+        self.seen_version_file = state_dir / "last-version"
         self.lock = threading.Lock()
         self.latest = None  # {"version", "notes"} of the newest release seen
         self.status = "idle"  # idle | installing | failed
@@ -48,6 +50,23 @@ class Updater:
         self.repo = config.get("repo") or None
         # Overridable for testing against a stand-in server.
         self.api = config.get("api", "https://api.github.com")
+
+    def record_version(self):
+        """At startup: leave a message if this version is new since last time."""
+        if not self.enabled:
+            return
+        try:
+            last = self.seen_version_file.read_text().strip()
+        except OSError:
+            last = None
+        if last and last != self.version:
+            self.messages.add(
+                "System updated",
+                f"Wii-OS was updated from {last} to {self.version}.",
+                kind="update-installed",
+                data={"version": self.version},
+            )
+        self.seen_version_file.write_text(self.version)
 
     @property
     def enabled(self):
@@ -70,6 +89,16 @@ class Updater:
         with self.lock:
             self.latest = {"version": release["tag_name"], "notes": whats_new(release.get("body"))}
         self.log(f"update check: installed {self.version}, latest {self.latest['version']}")
+        offer = self.offer(include_declined=True)
+        if offer and not self.messages.has("update-available", version=offer["version"]):
+            # A lasting note, so the update can still be installed after "Not now".
+            notes = "".join(f"\n• {n}" for n in offer["notes"])
+            self.messages.add(
+                "A system update is available",
+                f"Wii-OS {offer['version']} is ready to install.{notes}",
+                kind="update-available",
+                data={"version": offer["version"]},
+            )
 
     def loop(self):
         if not self.enabled:

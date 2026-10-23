@@ -26,9 +26,13 @@ A Wii-style TV menu that runs as a whole operating system on a PC, built on Debi
 | D-pad / left stick | Move |
 | A | Choose |
 | B | Back |
+| X | Pick up a channel to move it (A or X puts it down, B cancels) |
+| Y | Channel options, such as deleting it |
 | LB / RB | Previous / next page |
 | Home | Close the channel and return to the menu |
 
-Netflix, Hulu and Disney+ need a keyboard once to sign in. On Linux these services usually limit video to 720p.
+The menu starts with YouTube and the **Channel Shop**. Get more channels (Twitch, Plex, Netflix, Disney+, Hulu) from the shop. Updates and new channels are recorded in your messages, under the envelope button.
+
+No keyboard needed: on Netflix, Disney+ and Hulu, move to a text field and press **A** to bring up the on-screen keyboard (**B** closes it, **X** deletes, **Y** is shift). On Linux these services usually limit video to 720p.
 
 Wii-OS is a fan project. It is not affiliated with or endorsed by Nintendo, Google, Netflix, Disney, Hulu, Plex or Twitch.

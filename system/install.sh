@@ -43,12 +43,9 @@ if ! dpkg -s google-chrome-stable >/dev/null 2>&1; then
   rm -f "$CHROME_DEB"
 fi
 
-echo "==> Native channel apps (Flathub)"
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install -y --noninteractive flathub tv.plex.PlexHTPC
-# Plex HTPC only asks for X11. Under Xwayland its video layer stays black
-# behind the interface, so let it use Wayland directly.
-flatpak override --socket=wayland --env=QT_QPA_PLATFORM=wayland tv.plex.PlexHTPC
+# Native channel apps such as Plex HTPC come from Flathub when the user gets
+# them in the Channel Shop (see wiid/home.py and the flatpak_overrides in
+# wiid/channels.json).
 
 echo "==> Input access (controller + virtual keyboard)"
 usermod -aG input,video,render,audio "$USER_NAME"
