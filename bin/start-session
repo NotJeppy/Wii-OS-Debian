@@ -4,8 +4,18 @@
 # again and this runs once more.
 OS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_DIR="$HOME/.local/state/wii-os"
+LOG="$LOG_DIR/wiid.log"
 mkdir -p "$LOG_DIR"
-[ -f "$LOG_DIR/wiid.log" ] && mv "$LOG_DIR/wiid.log" "$LOG_DIR/wiid.log.1"
+[ -f "$LOG" ] && mv "$LOG" "$LOG.1"
 sleep 1
 export XCURSOR_THEME=wii-os-blank  # no pointer on the TV (see system/install.sh)
-exec cage -d -s -- python3 "$OS_DIR/wiid/wiid.py" >"$LOG_DIR/wiid.log" 2>&1
+
+cage -d -s -- python3 "$OS_DIR/wiid/wiid.py" >"$LOG" 2>&1
+
+# Without a usable GPU (virtual machines without 3D, some old graphics),
+# cage can't create its OpenGL renderer and exits at once. Draw in software
+# instead; slower, but everything still works.
+if [ -z "${WLR_RENDERER:-}" ] && grep -q "Unable to create the wlroots renderer" "$LOG"; then
+  echo "--- no usable GPU; retrying with software rendering ---" >>"$LOG"
+  WLR_RENDERER=pixman cage -d -s -- python3 "$OS_DIR/wiid/wiid.py" >>"$LOG" 2>&1
+fi
