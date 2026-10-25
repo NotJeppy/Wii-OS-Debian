@@ -21,7 +21,7 @@ from pathlib import Path
 import evdev
 from evdev import UInput, ecodes as e
 
-from devtools import launch_with_script
+from devtools import launch_with_scripts
 from home import Home
 from messages import Messages
 from updates import Updater
@@ -43,7 +43,9 @@ CHROMIUM_FLAGS = [
     "--hide-scrollbars",
     "--autoplay-policy=no-user-gesture-required",
     "--check-for-update-interval=31536000",
-    "--disable-features=Translate,MediaRouter",
+    # BackForwardCache: under cage, a page restored from it on "back" draws
+    # as a blank white screen; a normal reload draws fine.
+    "--disable-features=Translate,MediaRouter,BackForwardCache",
     "--enable-features=AcceleratedVideoDecodeLinuxGL",
 ]
 
@@ -52,11 +54,15 @@ def log(*args):
     print(time.strftime("%H:%M:%S"), *args, flush=True)
 
 
-def chromium(profile, url, extra=(), browser="chromium", keyboard=False):
+def chromium(profile, url, extra=(), browser="chromium", scripts=()):
     cmd = [browser, *CHROMIUM_FLAGS, f"--user-data-dir={STATE_DIR / 'profiles' / profile}", *extra, f"--app={url}"]
-    if keyboard:
-        # Sites with ordinary sign-in forms get the on-screen keyboard.
-        return launch_with_script(cmd, (UI_DIR / "osk.js").read_text(encoding="utf-8"), log)
+    if scripts:
+        # The DevTools pipe makes Chrome report itself as automated
+        # (navigator.webdriver), and sites like Google then treat the person
+        # using it as a bot. The pipe only adds our keyboard, so turn that off.
+        cmd.insert(1, "--disable-blink-features=AutomationControlled")
+        sources = [(UI_DIR / name).read_text(encoding="utf-8") for name in scripts]
+        return launch_with_scripts(cmd, sources, log, on_message=page_message)
     return subprocess.Popen(cmd, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -97,6 +103,8 @@ class Session:
                 if self.channel is not None and self.channel.poll() is not None:
                     log(f"channel {self.channel_id} exited")
                     self.channel = self.channel_id = self.channel_stop = None
+                    CONTROLLERS.set_raw(False)
+                    POINTER.set_enabled(False)
             time.sleep(1)
 
     def launch(self, channel_id):
@@ -116,9 +124,19 @@ class Session:
                     extra.append("--enable-spatial-navigation")  # arrow keys move between links
                 # Google Chrome carries Widevine DRM; Debian's Chromium does not.
                 browser = "google-chrome-stable" if channel.get("drm") else "chromium"
-                self.channel = chromium(channel_id, channel["url"], extra, browser, channel.get("keyboard", False))
+                scripts = []
+                if channel.get("keyboard"):
+                    scripts.append("osk.js")  # on-screen keyboard for ordinary web forms
+                if channel.get("browsing"):
+                    scripts.append("browser-helper.js")  # B = back, Y = start page
+                if channel.get("pointer"):
+                    scripts.append("pointer.js")  # draws the hand for the right-stick pointer
+                self.channel = chromium(channel_id, channel["url"], extra, browser, scripts)
             self.channel_id = channel_id
             self.channel_stop = channel.get("stop")
+            # Game streaming needs the real controller, not arrow keys.
+            CONTROLLERS.set_raw(channel.get("raw_controller", False))
+            POINTER.set_enabled(channel.get("pointer", False))
         return True
 
     def _close_channel(self):
@@ -126,6 +144,8 @@ class Session:
         if self.channel_stop:
             subprocess.run(self.channel_stop, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.channel = self.channel_id = self.channel_stop = None
+        CONTROLLERS.set_raw(False)
+        POINTER.set_enabled(False)
 
     def home(self):
         with self.lock:
@@ -231,7 +251,7 @@ class Handler(SimpleHTTPRequestHandler):
             ok = True
         elif self.path == "/api/launch":
             ok = SESSION.launch(body.get("id"))
-        elif self.path == "/api/home":
+        elif self.path == "/api/go-home":
             SESSION.home()
             ok = True
         elif self.path == "/api/power":
@@ -263,18 +283,148 @@ STICK_KEYS = {
 STICK_ON, STICK_OFF = 0.6, 0.35  # hysteresis, as a fraction of full tilt
 
 
+HOME_HOLD = 1.0  # seconds Home must be held to leave a raw-controller channel
+
+
 class Keyboard:
     def __init__(self):
         keys = set(BUTTON_KEYS.values())
         for pair in (*HAT_KEYS.values(), *STICK_KEYS.values()):
             keys.update(pair)
-        self.ui = UInput({e.EV_KEY: sorted(keys)}, name="wii-os controller keys")
+        self.keys = sorted(keys)
+        self.ui = UInput({e.EV_KEY: self.keys}, name="wii-os controller keys")
         self.lock = threading.Lock()
 
     def set(self, key, down):
         with self.lock:
             self.ui.write(e.EV_KEY, key, 1 if down else 0)
             self.ui.syn()
+
+    def release_all(self):
+        for key in self.keys:
+            self.set(key, False)
+
+
+class Controllers:
+    """The open controllers, and whether a channel has them raw.
+
+    Normally wiid grabs each controller (so apps never see it) and turns it
+    into keys. A raw-controller channel, such as game streaming, gets the
+    controller itself; wiid then only watches for a held Home button.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.devices = {}  # path -> InputDevice (which isn't hashable)
+        self.raw = False
+        self.keyboard = None
+
+    def add(self, dev):
+        with self.lock:
+            self.devices[dev.path] = dev
+            if not self.raw:
+                dev.grab()
+
+    def remove(self, dev):
+        with self.lock:
+            self.devices.pop(dev.path, None)
+
+    def set_raw(self, raw):
+        with self.lock:
+            if raw == self.raw:
+                return
+            self.raw = raw
+            for dev in self.devices.values():
+                try:
+                    dev.ungrab() if raw else dev.grab()
+                except OSError:
+                    pass
+        if raw and self.keyboard:
+            self.keyboard.release_all()  # no arrow key left held down
+        log("controller: raw for the channel" if raw else "controller: menu keys")
+
+
+CONTROLLERS = Controllers()
+
+RIGHT_STICK = {e.ABS_RX: "x", e.ABS_RY: "y"}
+POINTER_SPEED = 26  # pixels per tick at full tilt
+POINTER_DEADZONE = 0.18
+POINTER_HZ = 60
+
+
+def pointer_curve(tilt):
+    """Stick tilt -> speed, with a dead zone and finer control near the centre."""
+    a = abs(tilt)
+    if a < POINTER_DEADZONE:
+        return 0.0
+    speed = ((a - POINTER_DEADZONE) / (1 - POINTER_DEADZONE)) ** 2
+    return speed if tilt > 0 else -speed
+
+
+class Pointer:
+    """A mouse driven by the right stick, for channels that want one (the web).
+
+    The system cursor is invisible on the TV, so the page draws the Wii hand
+    where this pointer is (ui/pointer.js). A clicks while the pointer was the
+    last thing moved; the D-pad hands A back to link-by-link navigation. The
+    pointer rests while the on-screen keyboard is open.
+    """
+
+    def __init__(self):
+        self.mouse = UInput({e.EV_REL: [e.REL_X, e.REL_Y], e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT]},
+                            name="wii-os pointer")
+        self.lock = threading.Lock()
+        self.enabled = False  # the running channel wants a pointer
+        self.keyboard_open = False  # the on-screen keyboard has the controller
+        self.active = False  # the pointer was the last thing moved, so A clicks
+        self.tilt = {}  # controller path -> (x, y) of its right stick
+        self.rest = [0.0, 0.0]  # sub-pixel movement carried to the next tick
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def set_enabled(self, enabled):
+        self.enabled = enabled
+        self.keyboard_open = False
+        self.active = False
+
+    def usable(self):
+        return self.enabled and not self.keyboard_open and not CONTROLLERS.raw
+
+    def stick(self, path, axis, tilt):
+        x, y = self.tilt.get(path, (0.0, 0.0))
+        self.tilt[path] = (tilt, y) if axis == "x" else (x, tilt)
+
+    def button(self, down):
+        with self.lock:
+            self.mouse.write(e.EV_KEY, e.BTN_LEFT, 1 if down else 0)
+            self.mouse.syn()
+
+    def _run(self):
+        while True:
+            time.sleep(1 / POINTER_HZ)
+            if not self.usable():
+                continue
+            dx = sum(pointer_curve(x) for x, _ in list(self.tilt.values())) * POINTER_SPEED + self.rest[0]
+            dy = sum(pointer_curve(y) for _, y in list(self.tilt.values())) * POINTER_SPEED + self.rest[1]
+            step_x, step_y = int(dx), int(dy)
+            self.rest = [dx - step_x, dy - step_y]
+            if step_x or step_y:
+                self.active = True
+                with self.lock:
+                    self.mouse.write(e.EV_REL, e.REL_X, step_x)
+                    self.mouse.write(e.EV_REL, e.REL_Y, step_y)
+                    self.mouse.syn()
+
+
+POINTER = Pointer()
+
+
+def page_message(data):
+    """Messages from scripts injected into channel pages (see ui/osk.js)."""
+    if "keyboard" in data:
+        POINTER.keyboard_open = bool(data["keyboard"])
+        log(f"page: on-screen keyboard {'open' if POINTER.keyboard_open else 'closed'}")
+        if POINTER.keyboard_open:
+            POINTER.active = False
 
 
 def is_gamepad(dev):
@@ -285,7 +435,7 @@ def is_gamepad(dev):
 def read_gamepad(path, keyboard, active):
     try:
         dev = evdev.InputDevice(path)
-        dev.grab()  # the browser must not also see the raw gamepad
+        CONTROLLERS.add(dev)  # grabbed, so the browser doesn't also see the raw gamepad
     except OSError as err:
         log(f"cannot open {path}: {err}")
         active.discard(path)
@@ -293,18 +443,43 @@ def read_gamepad(path, keyboard, active):
     log(f"controller connected: {dev.name}")
     ranges = {code: (info.min, info.max) for code, info in dev.capabilities()[e.EV_ABS]}
     stick = {}  # axis -> key currently held by that axis
+    hold = None  # timer for a held Home button
+    a_clicks = False  # whether the A press in progress is a pointer click
     try:
         for ev in dev.read_loop():
+            if CONTROLLERS.raw:
+                # The channel reads the controller itself. A tap of Home goes to
+                # the game (the PC's guide button); holding it comes back here.
+                if ev.type == e.EV_KEY and ev.code == e.BTN_MODE:
+                    if ev.value == 1:
+                        hold = threading.Timer(HOME_HOLD, SESSION.home)
+                        hold.start()
+                    elif ev.value == 0 and hold:
+                        hold.cancel()
+                continue
             if ev.type == e.EV_KEY:
                 if ev.code == e.BTN_MODE:
                     if ev.value == 1:
                         threading.Thread(target=SESSION.home, daemon=True).start()
+                elif ev.code == e.BTN_SOUTH and ev.value in (0, 1):
+                    # A clicks at the pointer if that's what was moved last.
+                    if ev.value == 1:
+                        a_clicks = POINTER.usable() and POINTER.active
+                    if a_clicks:
+                        POINTER.button(ev.value == 1)
+                    else:
+                        keyboard.set(e.KEY_ENTER, ev.value == 1)
                 elif ev.code in BUTTON_KEYS and ev.value in (0, 1):
                     keyboard.set(BUTTON_KEYS[ev.code], ev.value == 1)
+            elif ev.type == e.EV_ABS and ev.code in RIGHT_STICK:
+                lo, hi = ranges[ev.code]
+                POINTER.stick(path, RIGHT_STICK[ev.code], (ev.value - (lo + hi) / 2) / ((hi - lo) / 2))
             elif ev.type == e.EV_ABS and ev.code in HAT_KEYS:
                 neg, pos = HAT_KEYS[ev.code]
                 keyboard.set(neg, ev.value < 0)
                 keyboard.set(pos, ev.value > 0)
+                if ev.value:
+                    POINTER.active = False  # back to link-by-link navigation
             elif ev.type == e.EV_ABS and ev.code in STICK_KEYS:
                 lo, hi = ranges[ev.code]
                 mid, half = (lo + hi) / 2, (hi - lo) / 2
@@ -319,10 +494,15 @@ def read_gamepad(path, keyboard, active):
                         keyboard.set(held, False)
                     if want:
                         keyboard.set(want, True)
+                        POINTER.active = False
                     stick[ev.code] = want
     except OSError:
         log(f"controller disconnected: {dev.name}")
     finally:
+        CONTROLLERS.remove(dev)
+        POINTER.tilt.pop(path, None)
+        if hold:
+            hold.cancel()
         for key in stick.values():
             if key:
                 keyboard.set(key, False)
@@ -331,6 +511,7 @@ def read_gamepad(path, keyboard, active):
 
 def watch_gamepads():
     keyboard = Keyboard()
+    CONTROLLERS.keyboard = keyboard
     active = set()
     while True:
         for path in evdev.list_devices():

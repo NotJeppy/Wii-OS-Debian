@@ -3,7 +3,8 @@
 // channels through Chrome's DevTools pipe, in an isolated world, so the site's
 // own scripts can't see or break it.
 //
-// Move to a text field with the D-pad and press A: the keyboard opens.
+// Move to a text field with the D-pad and press A (or click it with the
+// right-stick pointer): the keyboard opens.
 //   D-pad  move between keys      A  press the key
 //   B      close the keyboard     X  delete      Y  shift
 // Someone typing on a real keyboard never gets it.
@@ -18,6 +19,7 @@
   };
   const BOTTOM = [
     ["shift", "Shift"], ["mode", "#+="], [".com", ".com"], [" ", "Space"], ["back", "Delete"], ["done", "Done"],
+    ["enter", "Enter"],
   ];
 
   let open = false;
@@ -66,7 +68,7 @@
       color: #45474d; font-size: calc(var(--u) * 38); font-weight: 700; display: flex; align-items: center;
       justify-content: center; transition: transform 0.1s; }
     .key.wide { min-width: calc(var(--u) * 150); font-size: calc(var(--u) * 30); }
-    .key.space { min-width: calc(var(--u) * 330); }
+    .key.space { min-width: calc(var(--u) * 280); }
     .key.on { background: linear-gradient(#bfe6fa, #8fd2f3); }
     .key.sel { border-color: #34b1e8; transform: scale(1.08); box-shadow: 0 0 0 calc(var(--u) * 5) rgba(52,177,232,0.4); }
     .hint { margin-top: calc(var(--u) * 6); text-align: center; color: #8d8f96; font-size: calc(var(--u) * 24); }
@@ -172,12 +174,26 @@
       case "mode": mode = mode === "letters" ? "symbols" : "letters"; build(); return;
       case "back": backspace(); break;
       case "done": hide(); return;
+      case "enter": hide(); submit(); return;
       default: {
         insert(shift && mode === "letters" ? k.value.toUpperCase() : k.value);
         if (shift) { shift = false; build(); }
       }
     }
     paint();
+  }
+
+  // Like pressing Enter in the field: submit its form (search, sign in...).
+  function submit() {
+    const form = target?.form;
+    if (form) {
+      if (form.requestSubmit) form.requestSubmit();
+      else form.submit();
+      return;
+    }
+    for (const type of ["keydown", "keypress", "keyup"]) {
+      target?.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+    }
   }
 
   // Up and down go to the key nearest in the next row.
@@ -202,9 +218,21 @@
 
   // ---------- open / close ----------
 
+  // Tells wiid (the right-stick pointer rests while we're open) and the
+  // pointer hand in this page.
+  function announce(isOpen) {
+    try {
+      __wiiNotify(JSON.stringify({ keyboard: isOpen })); // eslint-disable-line no-undef
+    } catch {
+      // not running under wiid
+    }
+    dispatchEvent(new Event(isOpen ? "wii-osk-open" : "wii-osk-close"));
+  }
+
   function show(field) {
     target = field;
     open = true;
+    announce(true);
     shift = false;
     mode = "letters";
     sel = { r: 1, c: 0 };
@@ -216,6 +244,7 @@
 
   function hide() {
     open = false;
+    announce(false);
     host.remove();
     target?.focus();
   }
@@ -247,8 +276,19 @@
     else if (e.key === "y") { shift = !shift; build(); }
   }, true);
 
+  // Clicking a text field with the right-stick pointer opens the keyboard too.
+  addEventListener("click", (e) => {
+    if (open || realKeyboard || !e.isTrusted) return;
+    setTimeout(() => {
+      const field = deepActive();
+      if (!open && isText(field)) show(field);
+    }, 0);
+  }, true);
+
   for (const type of ["keyup", "keypress"]) {
     addEventListener(type, (e) => { if (open) swallow(e); }, true);
   }
   addEventListener("resize", () => open && sizeTo());
+  // Leaving the page with the keyboard open mustn't leave the pointer off.
+  addEventListener("pagehide", () => open && announce(false));
 })();

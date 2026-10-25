@@ -36,6 +36,36 @@
     ]
   },
   {
+    "id": "internet",
+    "name": "Internet",
+    "banner": "internet",
+    "description": "Browse the web with Google Chrome. The right stick points and A clicks, B goes back, Y goes to the start page.",
+    "url": "http://127.0.0.1:8770/browser/",
+    "drm": true,
+    "spatial_navigation": true,
+    "keyboard": true,
+    "browsing": true,
+    "pointer": true
+  },
+  {
+    "id": "moonlight",
+    "name": "Moonlight",
+    "banner": "moonlight",
+    "description": "Play games streamed from your gaming PC (it needs Sunshine). Hold Home to come back.",
+    "flatpak": "com.moonlight_stream.Moonlight",
+    "command": [
+      "flatpak",
+      "run",
+      "com.moonlight_stream.Moonlight"
+    ],
+    "stop": [
+      "flatpak",
+      "kill",
+      "com.moonlight_stream.Moonlight"
+    ],
+    "raw_controller": true
+  },
+  {
     "id": "netflix",
     "name": "Netflix",
     "banner": "netflix",

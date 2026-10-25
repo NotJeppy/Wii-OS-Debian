@@ -9,6 +9,8 @@ const BANNERS = {
   netflix: ["", "NETFLIX"],
   disney: ["", "Disney+"],
   hulu: ["", "hulu"],
+  moonlight: ["moon-logo", "Moonlight"],
+  internet: ["globe-logo", "Internet"],
   shop: ["shop-bag", "Channel Shop"],
 };
 

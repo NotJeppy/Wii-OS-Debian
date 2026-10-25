@@ -1,0 +1,114 @@
+/* The Internet channel's start page, in the menu's style. Sized in vw so it
+   fills any screen the way the menu's fixed stage does. */
+:root {
+  --blue: #34b1e8;
+  --ink: #6f7178;
+  --ink-soft: #9c9ea5;
+  --border: #c7c8ce;
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; height: 100%; }
+
+body {
+  font-family: "Quicksand", "Noto Sans", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 85% -10%, rgba(52,177,232,0.22), transparent 45%),
+    linear-gradient(#e8f6fe, #ffffff 45%, #f1f4f7);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+
+header { display: flex; align-items: center; gap: 2vw; margin-top: 6vh; }
+h1 { margin: 0; font-size: 5vw; font-weight: 700; color: #1b8fd1; }
+
+/* A globe: a blue ball with a meridian and an equator. */
+.globe {
+  position: relative;
+  width: 6vw;
+  height: 6vw;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #8fdaf8, #1b8fd1 70%);
+  box-shadow: inset 0 0 0 0.35vw rgba(255,255,255,0.85);
+}
+.globe::before, .globe::after {
+  content: "";
+  position: absolute;
+  border: 0.3vw solid rgba(255,255,255,0.85);
+  border-radius: 50%;
+}
+.globe::before { inset: 0 1.8vw; }
+.globe::after { inset: 1.8vw 0; }
+
+form { width: 62vw; margin-top: 5vh; }
+
+#address {
+  width: 100%;
+  height: 6.4vw;
+  padding: 0 2.2vw;
+  border-radius: 3.2vw;
+  border: 0.3vw solid var(--border);
+  background: #fff;
+  font: inherit;
+  font-size: 2.3vw;
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 0.3vw 0.8vw rgba(0,0,0,0.08);
+}
+#address::placeholder { color: var(--ink-soft); }
+#address:focus { border-color: var(--blue); box-shadow: 0 0 0 0.45vw rgba(52,177,232,0.35); }
+
+#shortcuts {
+  display: grid;
+  grid-template-columns: repeat(3, 19vw);
+  gap: 2vw;
+  margin-top: 6vh;
+}
+#shortcuts a {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 10vw;
+  padding: 0 2vw;
+  border-radius: 1.6vw;
+  border: 0.25vw solid var(--border);
+  background: linear-gradient(#ffffff, #eceef1);
+  text-decoration: none;
+  outline: none;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+#shortcuts b { font-size: 2.2vw; color: var(--ink); }
+#shortcuts span { margin-top: 0.4vw; font-size: 1.3vw; color: var(--ink-soft); }
+#shortcuts a:focus {
+  border-color: var(--blue);
+  transform: scale(1.05);
+  box-shadow: 0 0 0 0.45vw rgba(52,177,232,0.35);
+}
+
+footer {
+  position: fixed;
+  bottom: 4vh;
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  font-size: 1.4vw;
+  color: var(--ink-soft);
+}
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.4vw;
+  height: 2.4vw;
+  padding: 0 0.6vw;
+  margin-left: 1.2vw;
+  border-radius: 1.2vw;
+  border: 0.18vw solid var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 1.1vw;
+}
+.key + .key { margin-left: 0.2vw; }

@@ -1,8 +1,11 @@
-"""Injects a script into every page and frame of a Chrome channel.
+"""Injects scripts into every page and frame of a Chrome channel.
 
 Uses Chrome's DevTools protocol over --remote-debugging-pipe: Chrome reads
 commands on fd 3 and writes replies and events on fd 4, as NUL-terminated
 JSON. A pipe, unlike a debugging port, is reachable only by wiid.
+
+The scripts can talk back: each page's isolated world gets a function
+__wiiNotify(json) whose calls arrive here and go to `on_message`.
 """
 import json
 import os
@@ -10,8 +13,11 @@ import subprocess
 import threading
 
 
-def launch_with_script(cmd, source, log):
-    """Starts Chrome (cmd) and keeps `source` injected into all its pages."""
+WORLD = "wii-os"  # the isolated world our scripts run in, apart from the site's
+
+
+def launch_with_scripts(cmd, sources, log, on_message=None):
+    """Starts Chrome (cmd) and keeps `sources` injected, in order, into all its pages."""
     to_chrome_r, to_chrome_w = os.pipe()
     from_chrome_r, from_chrome_w = os.pipe()
 
@@ -31,17 +37,18 @@ def launch_with_script(cmd, source, log):
     )
     os.close(to_chrome_r)
     os.close(from_chrome_w)
-    session = _Injector(to_chrome_w, from_chrome_r, source, log)
+    session = _Injector(to_chrome_w, from_chrome_r, sources, log, on_message)
     threading.Thread(target=session.run, daemon=True).start()
     return proc
 
 
 class _Injector:
-    def __init__(self, write_fd, read_fd, source, log):
+    def __init__(self, write_fd, read_fd, sources, log, on_message):
         self.out = os.fdopen(write_fd, "wb", buffering=0)
         self.inp = os.fdopen(read_fd, "rb", buffering=0)
-        self.source = source
+        self.sources = sources
         self.log = log
+        self.on_message = on_message
         self.next_id = 0
         self.attached = set()
 
@@ -93,11 +100,25 @@ class _Injector:
             # Without Page.enable, the script reaches only the current document,
             # not the ones the tab navigates to afterwards.
             self.send("Page.enable", {}, session)
-            self.send("Page.addScriptToEvaluateOnNewDocument", {
-                "source": self.source,
-                "worldName": "wii-os",  # isolated from the site's own scripts
-                "runImmediately": True,
-            }, session)
+            self.send("Runtime.enable", {}, session)
+            # Installed in our isolated world only; the site can't call it.
+            self.send("Runtime.addBinding", {"name": "__wiiNotify", "executionContextName": WORLD}, session)
+            for source in self.sources:
+                self.send("Page.addScriptToEvaluateOnNewDocument", {
+                    "source": source,
+                    "worldName": WORLD,
+                    "runImmediately": True,
+                }, session)
             self.send("Runtime.runIfWaitingForDebugger", {}, session)
+        elif method == "Runtime.bindingCalled":
+            if params.get("name") == "__wiiNotify" and self.on_message:
+                try:
+                    self.on_message(json.loads(params["payload"]))
+                except ValueError:
+                    pass
+        elif method == "Target.targetInfoChanged":
+            info = params["targetInfo"]
+            if info["type"] == "page":
+                self.log(f"devtools: page is now {info['url'][:100]}")
         elif method == "Target.targetDestroyed":
             self.attached.discard(params["targetId"])

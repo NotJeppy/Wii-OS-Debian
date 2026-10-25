@@ -5,7 +5,8 @@
 A fan-made, Wii-style TV menu that runs as the whole user interface of a PC,
 built on Debian 13. Plug a PC into your TV, pick up a controller, and get a
 channel grid that starts with YouTube and the Channel Shop, where you can add
-Twitch, Plex, Netflix, Disney+ and Hulu.
+Twitch, Plex, Moonlight (game streaming from your PC), an Internet browser,
+Netflix, Disney+ and Hulu.
 
 Not affiliated with or endorsed by Nintendo. No Nintendo assets are used:
 everything is drawn in code and the menu sounds are synthesized. The Channel
@@ -21,11 +22,17 @@ project, not official Nintendo music.
 | B | Back |
 | X | Pick up a channel to move it (A or X puts it down, B cancels) |
 | Y | Channel options, such as deleting it (the Channel Shop can't be deleted) |
-| LB / RB | Previous / next page |
-| Home | Close the channel (or the shop) and return to the menu |
+| LB / RB | Previous / next page (in the Internet channel: scroll) |
+| Right stick | In the Internet channel: move the pointer. A then clicks where it points; the D-pad goes back to link-by-link |
+| Home | Close the channel (or the shop) and return to the menu. In Moonlight, **hold** Home for a second; a tap goes to the game |
 
-On Netflix, Disney+ and Hulu, move to a text field and press **A** for the
-on-screen keyboard: the D-pad picks keys, **A** types, **B** closes it, **X**
+The **Internet** channel is Google Chrome with a start page for searching or
+typing an address. B goes back, Y returns to the start page, and the right
+stick moves a Wii-style pointing hand. It rests while the on-screen keyboard is
+open.
+
+On Netflix, Disney+, Hulu and the Internet channel, move to a text field and
+press **A** (or click it with the pointer) for the on-screen keyboard: the D-pad picks keys, **A** types, **B** closes it, **X**
 deletes and **Y** is shift. (YouTube and Twitch have their own on-screen
 keyboards, and Plex signs in with a code.) A real USB keyboard still works and
 never brings it up.
@@ -64,6 +71,13 @@ the disk you choose, and it needs an internet connection.
   - `command` / `stop`: run a native app instead, and how to fully close it
   - `flatpak` / `flatpak_overrides`: the Flathub app the shop downloads for
     this user when they get the channel (removed again when they delete it)
+  - `raw_controller`: hand the real controller to the app (for games) instead
+    of turning it into keys; wiid then only watches for Home held for a second
+  - `browsing`: inject `ui/browser-helper.js` (B = back, Y = start page, links
+    open in place)
+  - `pointer`: the right stick drives a virtual mouse (wiid), and
+    `ui/pointer.js` draws the hand where it is. The on-screen keyboard tells
+    wiid when it opens and closes, through a DevTools binding
 - `wiid/home.py` keeps each user's layout in `~/.local/share/wii-os/home.json`
   (12 slots per page, channel id or empty) and handles getting and deleting
   channels. New users start with YouTube and the built-in Channel Shop.
