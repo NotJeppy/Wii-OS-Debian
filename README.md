@@ -123,8 +123,10 @@ Every push to `main` builds the ISO with GitHub Actions
 There is no update server: GitHub Releases is the server. Each release
 carries the ISO plus a small update bundle (`wii-os-<version>.tar.gz` and its
 `.sha256`). Installed boxes ask GitHub's public API for the latest release
-every 6 hours (`wiid/updates.py`). When a newer one exists, the menu offers it
-the next time the home menu is on screen, never while a channel is open. The
+(`wiid/updates.py`) when they start (retrying for a few minutes until the
+network is up), when someone wakes the screen saver, and every 6 hours. When a
+newer one exists, the menu offers it within seconds, but only while the home
+menu is on screen, never while a channel is open. The
 offer lists the release's "What's new" bullets, which CI fills in from the
 commit messages since the previous release.
 

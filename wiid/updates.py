@@ -13,7 +13,10 @@ import time
 import urllib.request
 
 CHECK_EVERY = 6 * 60 * 60  # seconds
-FIRST_CHECK_AFTER = 60
+# At startup the network may not be up yet: retry after these waits, then
+# fall back to CHECK_EVERY.
+STARTUP_RETRIES = [5, 10, 15, 30, 30, 60, 60, 120, 300]
+MIN_GAP = 60  # never ask GitHub more often than this (its limit is 60 an hour)
 
 
 def version_key(tag):
@@ -40,6 +43,8 @@ class Updater:
         self.declined_file = state_dir / "update-declined"
         self.seen_version_file = state_dir / "last-version"
         self.lock = threading.Lock()
+        self.wake = threading.Event()  # set by check_soon() to check ahead of schedule
+        self.last_check = 0.0
         self.latest = None  # {"version", "notes"} of the newest release seen
         self.status = "idle"  # idle | installing | failed
         try:
@@ -80,6 +85,7 @@ class Updater:
             return None
 
     def check(self):
+        self.last_check = time.time()
         req = urllib.request.Request(
             f"{self.api}/repos/{self.repo}/releases/latest",
             headers={"Accept": "application/vnd.github+json", "User-Agent": "wii-os-updater"},
@@ -104,13 +110,22 @@ class Updater:
         if not self.enabled:
             self.log("updates off (development copy)")
             return
-        time.sleep(FIRST_CHECK_AFTER)
+        retries = list(STARTUP_RETRIES)
         while True:
             try:
                 self.check()
+                retries = []  # online: from now on, the regular schedule
             except Exception as err:  # offline, rate-limited, no releases yet...
                 self.log(f"update check failed: {err}")
-            time.sleep(CHECK_EVERY)
+            wait = retries.pop(0) if retries else CHECK_EVERY
+            if self.wake.wait(wait):  # check_soon() cut the wait short
+                self.wake.clear()
+                time.sleep(max(0.0, self.last_check + MIN_GAP - time.time()))
+
+    def check_soon(self):
+        """Check now instead of at the next scheduled time (waking the screen saver)."""
+        if self.enabled:
+            self.wake.set()
 
     def offer(self, include_declined=False):
         """The newer release to offer, or None."""

@@ -320,6 +320,7 @@ class Session:
         self.saver_closed_at = now
         log("screen saver off")
         threading.Thread(target=stop, args=(saver,), daemon=True).start()
+        UPDATER.check_soon()  # someone is back: a good moment to look for updates
         return True
 
     def show_screen_saver(self, grace=0.0):

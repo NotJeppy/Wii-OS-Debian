@@ -24,7 +24,7 @@ let preview = null; // { from, left, right, back }: tile it zoomed from (null = 
 let previewChannel = null;
 let previewFocus = 1; // 0 = left pill (Menu), 1 = right pill (Start)
 let panel = null; // { actions, index, armed }
-let updateOffered = false; // the update prompt shows at most once per menu load
+let updateOffered = null; // the version the prompt last showed; each version is offered once
 
 function fit() {
   document.documentElement.style.setProperty("--scale", scale());
@@ -444,9 +444,10 @@ async function openSystemPanel() {
 
 // Offers a new release, but only while the menu itself is on screen.
 async function offerUpdate() {
-  if (state.mode !== "menu" || updateOffered) return;
+  if (state.mode !== "menu") return;
   const s = await api("/api/update").catch(() => null);
-  if (s?.available && state.mode === "menu") showUpdatePrompt(s.available);
+  const release = s?.available;
+  if (release && release.version !== updateOffered && state.mode === "menu") showUpdatePrompt(release);
   refreshBadge(); // the check may have left a message
 }
 
@@ -465,7 +466,7 @@ function updateBanner(release) {
 }
 
 function showUpdatePrompt(release) {
-  updateOffered = true;
+  updateOffered = release.version;
   const decline = () => {
     api("/api/update/decline", {}).catch(() => null);
     closePreview();
@@ -558,5 +559,7 @@ if (new URLSearchParams(location.search).has("return")) {
   setTimeout(offerUpdate, 1500);
 }
 refreshBadge();
-setInterval(offerUpdate, 60 * 1000);
+// Cheap (it only asks wiid), so the prompt appears soon after a check finds
+// something: at startup, or after the screen saver.
+setInterval(offerUpdate, 10 * 1000);
 setInterval(() => state.mode === "menu" && (loadHome(), refreshBadge()), 30 * 1000);
