@@ -24,6 +24,7 @@ from evdev import UInput, ecodes as e
 from devtools import launch_with_scripts
 from home import Home
 from messages import Messages
+from settings import Settings
 from updates import Updater
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,92 +79,271 @@ def stop(proc, timeout=4):
         pass
 
 
+SUSPEND_LIMIT = 30 * 60  # seconds a paused channel waits before it's closed for good
+SAVER_URL = f"http://127.0.0.1:{PORT}/screensaver.html"
+
+
+def process_tree(root):
+    """root and all its descendants. Signals go to each of them, because
+    Flatpak apps leave the process group they were started in."""
+    children = {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            stat = (entry / "stat").read_text()
+        except OSError:
+            continue
+        ppid = int(stat.rsplit(")", 1)[1].split()[1])
+        children.setdefault(ppid, []).append(int(entry.name))
+    tree, todo = [], [root]
+    while todo:
+        pid = todo.pop()
+        tree.append(pid)
+        todo.extend(children.get(pid, []))
+    return tree
+
+
+def signal_tree(root, sig):
+    for pid in process_tree(root):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def media_playing():
+    """Whether any app is playing sound right now (counts as activity, so a
+    long movie doesn't bring up the screen saver)."""
+    try:
+        out = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=5).stdout
+        objects = json.loads(out)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return False
+    for obj in objects:
+        info = obj.get("info") or {}
+        props = info.get("props") or {}
+        if props.get("media.class") == "Stream/Output/Audio" and info.get("state") == "running":
+            return True
+    return False
+
+
+class Running:
+    """A channel's process tree, which can be paused and closed."""
+
+    def __init__(self, channel, proc):
+        self.channel = channel
+        self.id = channel["id"]
+        self.proc = proc
+        self.paused_at = None
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def pause(self):
+        signal_tree(self.proc.pid, signal.SIGSTOP)
+        self.paused_at = time.time()
+
+    def resume(self):
+        signal_tree(self.proc.pid, signal.SIGCONT)
+        self.paused_at = None
+
+    def close(self):
+        if self.paused_at:
+            # A stopped process only acts on SIGTERM once it's running again.
+            try:
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            signal_tree(self.proc.pid, signal.SIGCONT)
+        stop(self.proc)
+        if self.channel.get("stop"):
+            subprocess.run(self.channel["stop"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 class Session:
-    """The menu browser plus at most one running channel on top of it."""
+    """The menu browser, the channels shown over it, and the screen saver.
+
+    cage shows the newest window on top, so a channel covers the menu. With
+    suspend on, Home pauses the channel instead of closing it (freezing all
+    its processes) and opens a fresh menu window over it. Opening that channel
+    again closes the menu window, which reveals the channel, and unpauses it.
+    A paused channel is closed for good after SUSPEND_LIMIT, or as soon as a
+    different channel opens.
+    """
 
     def __init__(self):
-        self.lock = threading.Lock()
+        # Re-entrant: the shutdown signal handler runs on the same thread as run().
+        self.lock = threading.RLock()
         self.menu = None
-        self.channel = None
-        self.channel_id = None
-        self.channel_stop = None  # extra command that closes a native app for good
+        self.menu_wanted = True  # False while a resumed channel is where the menu was
+        self.menu_starts = 0
+        self.current = None  # the channel on screen
+        self.paused = None  # a suspended channel, behind the menu
         self.home_presses = 0  # lets the menu notice Home while its own shop is open
+        self.last_input = time.time()
+        self.saver = None  # the screen saver's window
+        self.saver_grace = 0  # until then, input doesn't close the screen saver
+        self.saver_closed_at = 0
 
-    def keep_menu_alive(self):
+    def run(self):
         display = Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"]
         while True:
             if not display.exists():
                 # cage is shutting down and waits for us to exit first.
                 log("display gone, exiting")
                 return
-            if self.menu is None or self.menu.poll() is not None:
-                log("starting menu")
-                self.menu = chromium("menu", MENU_URL)
             with self.lock:
-                if self.channel is not None and self.channel.poll() is not None:
-                    log(f"channel {self.channel_id} exited")
-                    self.channel = self.channel_id = self.channel_stop = None
-                    CONTROLLERS.set_raw(False)
-                    POINTER.set_enabled(False)
+                if self.menu_wanted and (self.menu is None or self.menu.poll() is not None):
+                    self._start_menu()
+                if self.current and not self.current.alive():
+                    log(f"channel {self.current.id} exited")
+                    self.current = None
+                    self._controls(None)
+                    self.menu_wanted = True
+                if self.paused and (not self.paused.alive()
+                                    or time.time() - self.paused.paused_at > SUSPEND_LIMIT):
+                    log(f"closing paused channel {self.paused.id}")
+                    self.paused.close()
+                    self.paused = None
+            self._screen_saver_tick()
             time.sleep(1)
+
+    def _start_menu(self):
+        # Only the first menu of a session shows the welcome screen.
+        url = MENU_URL if self.menu_starts == 0 else MENU_URL + "?return=1"
+        log("starting menu")
+        self.menu = chromium("menu", url)
+        self.menu_starts += 1
+
+    def _controls(self, channel):
+        # Game streaming needs the real controller, not arrow keys.
+        CONTROLLERS.set_raw(bool(channel and channel.get("raw_controller")))
+        POINTER.set_enabled(bool(channel and channel.get("pointer")))
 
     def launch(self, channel_id):
         channel = HOME.channel(channel_id)
         if channel is None or channel.get("builtin"):
-            return False  # built-in channels (the shop) run inside the menu itself
+            return False  # built-in channels (shop, settings) run inside the menu itself
         with self.lock:
-            self._close_channel()
+            if self.paused and self.paused.id == channel_id:
+                log(f"resuming {channel_id}")
+                self.current, self.paused = self.paused, None
+                self.current.resume()
+                self.menu_wanted = False
+                stop(self.menu)  # the channel's window is right underneath
+                self.menu = None
+                self._controls(channel)
+                return True
+            for old in (self.paused, self.current):
+                if old:
+                    log(f"closing {old.id}")
+                    old.close()
+            self.paused = self.current = None
             log(f"launching {channel_id}")
-            if "command" in channel:
-                # A native app rather than a web page.
-                self.channel = subprocess.Popen(channel["command"], start_new_session=True,
-                                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                extra = [f"--user-agent={channel['user_agent']}"] if channel.get("user_agent") else []
-                if channel.get("spatial_navigation"):
-                    extra.append("--enable-spatial-navigation")  # arrow keys move between links
-                # Google Chrome carries Widevine DRM; Debian's Chromium does not.
-                browser = "google-chrome-stable" if channel.get("drm") else "chromium"
-                scripts = []
-                if channel.get("keyboard"):
-                    scripts.append("osk.js")  # on-screen keyboard for ordinary web forms
-                if channel.get("browsing"):
-                    scripts.append("browser-helper.js")  # B = back, Y = start page
-                if channel.get("pointer"):
-                    scripts.append("pointer.js")  # draws the hand for the right-stick pointer
-                self.channel = chromium(channel_id, channel["url"], extra, browser, scripts)
-            self.channel_id = channel_id
-            self.channel_stop = channel.get("stop")
-            # Game streaming needs the real controller, not arrow keys.
-            CONTROLLERS.set_raw(channel.get("raw_controller", False))
-            POINTER.set_enabled(channel.get("pointer", False))
+            self.current = Running(channel, self._start(channel))
+            self._controls(channel)
         return True
 
-    def _close_channel(self):
-        stop(self.channel)
-        if self.channel_stop:
-            subprocess.run(self.channel_stop, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.channel = self.channel_id = self.channel_stop = None
-        CONTROLLERS.set_raw(False)
-        POINTER.set_enabled(False)
+    def _start(self, channel):
+        if "command" in channel:
+            # A native app rather than a web page.
+            return subprocess.Popen(channel["command"], start_new_session=True,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        extra = [f"--user-agent={channel['user_agent']}"] if channel.get("user_agent") else []
+        if channel.get("spatial_navigation"):
+            extra.append("--enable-spatial-navigation")  # arrow keys move between links
+        # Google Chrome carries Widevine DRM; Debian's Chromium does not.
+        browser = "google-chrome-stable" if channel.get("drm") else "chromium"
+        scripts = []
+        if channel.get("keyboard"):
+            scripts.append("osk.js")  # on-screen keyboard for ordinary web forms
+        if channel.get("browsing"):
+            scripts.append("browser-helper.js")  # B = back, Y = start page
+        if channel.get("pointer"):
+            scripts.append("pointer.js")  # draws the hand for the right-stick pointer
+        return chromium(channel["id"], channel["url"], extra, browser, scripts)
 
     def home(self):
         with self.lock:
             self.home_presses += 1
-            if self.channel is not None:
-                log(f"home: closing {self.channel_id}")
-            self._close_channel()
+            channel = self.current
+            if channel is None:
+                return
+            self.current = None
+            self._controls(None)
+            # Game streams would lose their connection while frozen.
+            if SETTINGS.get("suspend") and not channel.channel.get("raw_controller"):
+                log(f"home: pausing {channel.id}")
+                channel.pause()
+                self.paused = channel
+                stop(self.menu)  # the old menu is under the channel; open a new one on top
+                self.menu = None
+                self._start_menu()
+            else:
+                log(f"home: closing {channel.id}")
+                channel.close()
+            self.menu_wanted = True
 
     def restart_menu(self):
-        self.home()
-        stop(self.menu)  # keep_menu_alive starts a fresh one
+        with self.lock:
+            for old in (self.paused, self.current):
+                if old:
+                    old.close()
+            self.paused = self.current = None
+            self._controls(None)
+            self.menu_wanted = True
+            stop(self.menu)  # run() starts a fresh one
+            self.menu = None
 
     def state(self):
         with self.lock:
-            return {"running": self.channel_id, "home_presses": self.home_presses}
+            return {
+                "running": self.current.id if self.current else None,
+                "paused": self.paused.id if self.paused else None,
+                "home_presses": self.home_presses,
+            }
+
+    # ---------- screen saver ----------
+
+    def input_seen(self):
+        """Called for every real controller input. True means it only woke the
+        screen saver, so it shouldn't reach the app."""
+        now = time.time()
+        self.last_input = now
+        saver = self.saver
+        if saver is None:
+            return now - self.saver_closed_at < 0.6  # the rest of the waking press
+        if now < self.saver_grace:
+            return True
+        self.saver = None
+        self.saver_closed_at = now
+        log("screen saver off")
+        threading.Thread(target=stop, args=(saver,), daemon=True).start()
+        return True
+
+    def show_screen_saver(self, grace=0.0):
+        if self.saver is None or self.saver.poll() is not None:
+            self.saver = chromium("screensaver", SAVER_URL)
+            self.saver_grace = time.time() + grace
+
+    def _screen_saver_tick(self):
+        if self.saver is not None:
+            if self.saver.poll() is not None:
+                self.saver = None
+            return
+        hours = SETTINGS.get("screensaver_hours")
+        if not hours or time.time() - self.last_input < hours * 3600:
+            return
+        if media_playing():
+            self.last_input = time.time()  # watching something counts as activity
+            return
+        log(f"no input for {hours} h: screen saver on")
+        self.show_screen_saver()
 
 
 SESSION = Session()
+SETTINGS = Settings(STATE_DIR)
 MESSAGES = Messages(STATE_DIR)
 HOME = Home(CHANNELS_FILE, STATE_DIR, log, MESSAGES)
 # After an update, exit: cage exits with us and getty starts the new version.
@@ -225,6 +405,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(system_info())
         elif self.path == "/api/update":
             self.send_json(UPDATER.state())
+        elif self.path == "/api/settings":
+            self.send_json(SETTINGS.describe())
         elif self.path == "/api/update?all=1":  # including a declined version
             self.send_json(UPDATER.state(include_declined=True))
         else:
@@ -242,6 +424,11 @@ class Handler(SimpleHTTPRequestHandler):
             ok = UPDATER.install()
         elif self.path == "/api/home":
             ok = HOME.save_slots(body.get("slots", []))
+        elif self.path == "/api/settings":
+            ok = SETTINGS.update(body)
+        elif self.path == "/api/screensaver":  # "Try it" in Settings
+            SESSION.show_screen_saver(grace=1.5)  # the A press that started it mustn't end it
+            ok = True
         elif self.path == "/api/shop/install":
             ok = HOME.install(body.get("id"))
         elif self.path == "/api/channels/remove":
@@ -427,6 +614,19 @@ def page_message(data):
             POINTER.active = False
 
 
+def meaningful(ev, ranges):
+    """A button, or a real push of a stick; not the small jitter of an
+    untouched stick, which would keep the screen saver away forever."""
+    if ev.type == e.EV_KEY:
+        return True
+    if ev.type != e.EV_ABS or ev.code not in ranges:
+        return False
+    lo, hi = ranges[ev.code]
+    if hi - lo <= 2:  # the D-pad
+        return ev.value != 0
+    return abs(ev.value - (lo + hi) / 2) / ((hi - lo) / 2) > 0.3
+
+
 def is_gamepad(dev):
     caps = dev.capabilities()
     return e.BTN_SOUTH in caps.get(e.EV_KEY, []) and e.EV_ABS in caps
@@ -447,6 +647,8 @@ def read_gamepad(path, keyboard, active):
     a_clicks = False  # whether the A press in progress is a pointer click
     try:
         for ev in dev.read_loop():
+            if meaningful(ev, ranges) and SESSION.input_seen():
+                continue  # it only woke the screen saver
             if CONTROLLERS.raw:
                 # The channel reads the controller itself. A tap of Home goes to
                 # the game (the PC's guide button); holding it comes back here.
@@ -535,7 +737,8 @@ def main():
         MESSAGES.add(
             "Welcome to Wii-OS",
             "Get more channels from the Channel Shop. Press X on a channel to move it, "
-            "and Y for its options. Updates and new channels are recorded here.",
+            "and Y for its options. Home pauses a channel so you can pick up where "
+            "you left off. Updates and new channels are recorded here.",
             kind="welcome",
         )
     UPDATER.record_version()
@@ -546,13 +749,13 @@ def main():
     threading.Thread(target=UPDATER.loop, daemon=True).start()
 
     def shutdown(*_):
-        SESSION.home()
-        stop(SESSION.menu)
+        SESSION.restart_menu()  # closes every channel, paused ones too, and the menu
+        stop(SESSION.saver)
         os._exit(0)
 
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    SESSION.keep_menu_alive()
+    SESSION.run()
     shutdown()
 
 

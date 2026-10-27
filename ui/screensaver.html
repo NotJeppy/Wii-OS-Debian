@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Screen saver</title>
+<style>
+  /* Dark, dim and always moving, so nothing stays lit in one place. */
+  * { cursor: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #03050a; }
+  #glow {
+    position: absolute;
+    width: 70vmax;
+    height: 70vmax;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(52,177,232,0.10), transparent 65%);
+    will-change: transform;
+  }
+  #card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    text-align: center;
+    font-family: "Quicksand", "Noto Sans", sans-serif;
+    color: #6b7180;
+    will-change: transform;
+    animation: fadein 3s ease-out;
+  }
+  #logo { font-size: 6vw; font-weight: 700; letter-spacing: 0.1vw; }
+  #time { font-size: 3vw; font-weight: 700; margin-top: 0.4vw; color: #4f5563; }
+  #hint { font-size: 1.2vw; margin-top: 1vw; color: #3a3f4a; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+  <div id="glow"></div>
+  <div id="card">
+    <div id="logo">wii-os</div>
+    <div id="time"></div>
+    <div id="hint">Press any button</div>
+  </div>
+<script>
+  const card = document.getElementById("card");
+  const glow = document.getElementById("glow");
+  const time = document.getElementById("time");
+  const SPEED = 0.018; // of the screen width per second: it crosses in about a minute
+
+  // Start somewhere random and drift, bouncing off the edges.
+  let x = Math.random(), y = Math.random();
+  let dx = Math.random() < 0.5 ? 1 : -1, dy = Math.random() < 0.5 ? 1 : -1;
+  let last = performance.now();
+
+  function tick(now) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    const w = innerWidth - card.offsetWidth, h = innerHeight - card.offsetHeight;
+    x += dx * SPEED * dt * innerWidth / Math.max(w, 1);
+    y += dy * SPEED * dt * innerWidth / Math.max(h, 1) * 0.8;
+    if (x < 0 || x > 1) { dx = -dx; x = Math.min(1, Math.max(0, x)); }
+    if (y < 0 || y > 1) { dy = -dy; y = Math.min(1, Math.max(0, y)); }
+    card.style.transform = `translate(${x * w}px, ${y * h}px)`;
+    // The glow wanders on its own, slower path.
+    const t = now / 1000;
+    glow.style.transform = `translate(${(Math.sin(t / 47) * 0.5 + 0.25) * innerWidth}px, ${(Math.cos(t / 61) * 0.5) * innerHeight}px)`;
+    requestAnimationFrame(tick);
+  }
+
+  function clock() {
+    time.textContent = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+
+  clock();
+  setInterval(clock, 10000);
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

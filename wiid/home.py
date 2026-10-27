@@ -17,7 +17,15 @@ SHOP = {
     "builtin": True,
     "description": "Get new channels for your home menu.",
 }
-DEFAULT_SLOTS = ["youtube", "shop"]
+SETTINGS = {
+    "id": "settings",
+    "name": "Settings",
+    "banner": "settings",
+    "builtin": True,
+    "description": "Screen saver, suspend and other options.",
+}
+BUILTIN = {"shop": SHOP, "settings": SETTINGS}  # on every menu, and can't be deleted
+DEFAULT_SLOTS = ["youtube", "shop", "settings"]
 FLATHUB = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 
 
@@ -35,25 +43,32 @@ class Home:
             return json.load(f)
 
     def channel(self, channel_id):
-        if channel_id == "shop":
-            return SHOP
+        if channel_id in BUILTIN:
+            return BUILTIN[channel_id]
         return next((c for c in self.catalog() if c["id"] == channel_id), None)
+
+    def known(self):
+        return {c["id"] for c in self.catalog()} | set(BUILTIN)
 
     def slots(self):
         try:
             slots = json.loads(self.layout_file.read_text())["slots"]
         except (OSError, ValueError, KeyError):
             slots = list(DEFAULT_SLOTS)
-        known = {c["id"] for c in self.catalog()} | {"shop"}
+        known = self.known()
         slots = [s if s in known else None for s in slots]
-        if "shop" not in slots:
-            slots.insert(0, "shop")  # the shop can never be lost
+        for builtin in BUILTIN:  # built-in channels can never be lost
+            if builtin not in slots:
+                if None in slots:
+                    slots[slots.index(None)] = builtin
+                else:
+                    slots.append(builtin)
         return slots
 
     def save_slots(self, slots):
-        known = {c["id"] for c in self.catalog()} | {"shop"}
         ids = [s for s in slots if s is not None]
-        if any(s not in known for s in ids) or len(ids) != len(set(ids)) or "shop" not in ids:
+        if (any(s not in self.known() for s in ids) or len(ids) != len(set(ids))
+                or any(b not in ids for b in BUILTIN)):
             return False
         while slots and slots[-1] is None:
             slots = slots[:-1]
@@ -63,7 +78,7 @@ class Home:
     def layout(self):
         slots = self.slots()
         channels = {c["id"]: c for c in self.catalog()}
-        channels["shop"] = SHOP
+        channels.update(BUILTIN)
         return {"slots": slots, "channels": {s: channels[s] for s in slots if s}}
 
     def listing(self):

@@ -4,6 +4,7 @@ import { play } from "./sounds.js";
 import { startClock } from "./clock.js";
 import { banner } from "./banners.js";
 import { openShop } from "./shop.js";
+import { openSettings } from "./settings.js";
 import { openMessages, refreshBadge } from "./messages.js";
 import {
   $, api, keyOf, make, placeHand, rectInStage, scale, setMode, state, updateFocus, views, wait,
@@ -15,6 +16,7 @@ const ROWS = 3;
 
 let slots = []; // channel id or null for each position, PER_PAGE per page
 let channels = {}; // id -> channel
+let pausedId = null; // a suspended channel, shown with a badge and "Resume"
 let page = 0;
 let focus = { area: "grid", index: 0 }; // area: grid | buttons; index within the page
 let moving = null; // { original } while a channel is being moved
@@ -39,10 +41,11 @@ function pageCount() {
 }
 
 async function loadHome() {
-  const home = await api("/api/home").catch(() => null);
+  const [home, s] = await Promise.all([api("/api/home"), api("/api/state")].map((p) => p.catch(() => null)));
   if (!home || moving) return;
   slots = home.slots;
   channels = home.channels;
+  pausedId = s?.paused ?? null;
   page = Math.min(page, pageCount() - 1);
   renderGrid();
 }
@@ -53,6 +56,7 @@ function renderGrid() {
     const tile = make("div", "tile");
     const channel = channelAt(page * PER_PAGE + i);
     if (channel) tile.append(banner(channel));
+    if (channel && channel.id === pausedId) tile.append(make("span", "paused-badge", "Paused"));
     if (moving && i === focus.index) tile.classList.add("lifted");
     tiles.push(tile);
   }
@@ -110,9 +114,11 @@ function chooseInMenu() {
   const channel = channelAt(slotIndex());
   if (!channel) return play("bump");
   previewChannel = channel;
-  openPreview(banner(channel), ["Menu", "Start"], $("grid").children[focus.index], {
+  const builtins = { shop: startShop, settings: startSettings };
+  const start = channel.id === pausedId ? "Resume" : "Start";
+  openPreview(banner(channel), ["Menu", start], $("grid").children[focus.index], {
     left: closePreview,
-    right: channel.builtin ? startShop : startChannel,
+    right: builtins[channel.id] ?? startChannel,
     back: closePreview,
   });
 }
@@ -322,6 +328,7 @@ function waitForReturn() {
 
 function returnFromChannel() {
   closePreview();
+  loadHome(); // a paused channel may have closed meanwhile
   setTimeout(offerUpdate, 1500);
 }
 
@@ -340,6 +347,12 @@ async function startShop() {
     onInstalled: () => refreshBadge(),
   });
   $("flash").classList.remove("on");
+}
+
+async function startSettings() {
+  setMode("running");
+  play("select");
+  await openSettings({ onClose: returnFromChannel });
 }
 
 // ---------- panels ----------
@@ -536,6 +549,14 @@ fit();
 addEventListener("resize", fit);
 startClock($("clock"), $("date"));
 await loadHome();
+// wiid opens a fresh menu when you press Home in a channel; only the first
+// menu of a session shows the welcome screen.
+if (new URLSearchParams(location.search).has("return")) {
+  $("welcome").hidden = true;
+  setMode("menu");
+  play("close");
+  setTimeout(offerUpdate, 1500);
+}
 refreshBadge();
 setInterval(offerUpdate, 60 * 1000);
 setInterval(() => state.mode === "menu" && (loadHome(), refreshBadge()), 30 * 1000);

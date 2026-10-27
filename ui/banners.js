@@ -12,6 +12,7 @@ const BANNERS = {
   moonlight: ["moon-logo", "Moonlight"],
   internet: ["globe-logo", "Internet"],
   shop: ["shop-bag", "Channel Shop"],
+  settings: ["gear-logo", "Settings"],
 };
 
 export function banner(channel) {

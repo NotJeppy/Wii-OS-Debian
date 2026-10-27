@@ -37,6 +37,19 @@ deletes and **Y** is shift. (YouTube and Twitch have their own on-screen
 keyboards, and Plex signs in with a code.) A real USB keyboard still works and
 never brings it up.
 
+**Suspend:** pressing Home in a channel pauses it (every process of it is
+frozen) instead of closing it, and its tile shows **Paused**. Open it again to
+carry on exactly where you were. A paused channel closes for good after 30
+minutes, or as soon as you open a different channel. Moonlight is never
+paused, since a frozen game stream would drop. Suspend can be turned off in
+**Settings**.
+
+**Settings** is on every menu and can't be deleted. It has the screen saver
+delay (never, or 1 to 6 hours without a button press; sound playing counts as
+activity) and the suspend switch. The screen saver is a dark screen with the
+logo and clock drifting slowly, so nothing burns in. Any button wakes it, and
+that press doesn't reach the app underneath.
+
 The envelope button holds your messages: a permanent record of updates offered
 and installed and channels added. A red dot means some are unread.
 
@@ -80,7 +93,12 @@ the disk you choose, and it needs an internet connection.
     wiid when it opens and closes, through a DevTools binding
 - `wiid/home.py` keeps each user's layout in `~/.local/share/wii-os/home.json`
   (12 slots per page, channel id or empty) and handles getting and deleting
-  channels. New users start with YouTube and the built-in Channel Shop.
+  channels. New users start with YouTube and the built-in Channel Shop and
+  Settings, which every layout keeps.
+- `wiid/settings.py` keeps the Settings channel's options in
+  `~/.local/share/wii-os/settings.json`. `wiid.py` pauses channels with
+  SIGSTOP on their whole process tree, and shows `ui/screensaver.html` in a
+  window of its own after the idle time.
 - `wiid/messages.py` keeps the message board in
   `~/.local/share/wii-os/messages.json`. Messages are never deleted.
 - `ui/` is the menu itself (plain HTML/CSS/JS): `app.js` (grid, move mode,

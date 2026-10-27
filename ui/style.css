@@ -293,6 +293,60 @@ html, body {
 
 @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: none; opacity: 1; } }
 
+/* A suspended channel's tile. */
+.paused-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 16px 4px 12px;
+  border-radius: 20px;
+  background: rgba(27, 143, 209, 0.92);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.paused-badge::before { content: "❚❚ "; font-size: 16px; }
+
+/* ---------- Settings ---------- */
+
+#settings {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: linear-gradient(#eef0f3, #ffffff 40%, #eceef1);
+}
+#settings header { position: absolute; left: 110px; top: 50px; display: flex; align-items: center; gap: 36px; }
+#settings header .gear-logo { font-size: 110px; }
+#settings h1 { margin: 0; font-size: 80px; font-weight: 700; color: var(--ink); }
+#settings-list { position: absolute; left: 110px; right: 110px; top: 230px; display: flex; flex-direction: column; gap: 26px; }
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  min-height: 170px;
+  padding: 26px 46px;
+  border-radius: 34px;
+  border: 4px solid var(--tile-border);
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s;
+}
+.set-row.focused {
+  border-color: var(--blue);
+  transform: scale(1.015);
+  box-shadow: 0 0 0 6px var(--blue-soft);
+}
+.set-words { flex: 1; }
+.set-title { font-size: 46px; font-weight: 700; color: var(--ink); }
+.set-text { margin-top: 8px; font-size: 28px; line-height: 1.35; color: var(--ink-soft); }
+.set-value { display: flex; align-items: center; gap: 22px; font-size: 40px; font-weight: 700; color: #1b8fd1; }
+.set-current { min-width: 260px; text-align: center; }
+.set-arrow { font-size: 30px; color: var(--ink-soft); }
+.set-row:not(.focused) .set-arrow { visibility: hidden; }
+#settings footer { position: absolute; left: 110px; bottom: 46px; font-size: 36px; color: var(--ink); display: flex; align-items: center; gap: 18px; }
+#settings footer .key-b { width: 60px; height: 60px; font-size: 36px; }
+
 /* ---------- message board ---------- */
 
 #messages {
@@ -619,6 +673,30 @@ html, body {
   letter-spacing: -0.04em;
 }
 .banner-hulu .wordmark { font-size: 1.3em; }
+
+.banner-settings {
+  background: radial-gradient(circle at 50% 30%, #ffffff, #e2e4e8 80%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3em;
+  font-weight: 700;
+  color: var(--ink);
+}
+.banner-settings .wordmark { font-size: 0.9em; }
+/* A gear: twelve teeth (a repeating conic gradient cut to the outer circle),
+   a solid ring, and a hole in the middle. */
+.gear-logo {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 0.12em, #8d939e 0.125em 0.32em, transparent 0.325em),
+    repeating-conic-gradient(#8d939e 0 15deg, transparent 15deg 30deg);
+  -webkit-mask: radial-gradient(circle, #000 0.45em, transparent 0.455em);
+  mask: radial-gradient(circle, #000 0.45em, transparent 0.455em);
+}
 
 .banner-internet {
   background: radial-gradient(circle at 50% 35%, #ffffff, #d6effc 80%);
