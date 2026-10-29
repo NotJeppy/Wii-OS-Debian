@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 
 def run(cmd, timeout=20):
@@ -59,7 +60,8 @@ class Wifi:
 
     def device(self):
         """The Wi-Fi interface and its state, or None without Wi-Fi hardware."""
-        if not shutil.which("nmcli"):
+        # Ask the kernel first: instant, and no Wi-Fi means nothing to ask nmcli.
+        if not shutil.which("nmcli") or not any(Path("/sys/class/net").glob("*/wireless")):
             return None
         for dev, kind, state, conn in rows("-f", "DEVICE,TYPE,STATE,CONNECTION", "device"):
             if kind == "wifi":
@@ -237,7 +239,9 @@ class Bluetooth:
         """BlueZ's objects: {path: {interface: {property: value}}}."""
         try:
             import dbus  # python3-dbus; imported here so wiid starts without it
-            manager = dbus.Interface(dbus.SystemBus().get_object("org.bluez", "/"),
+            # introspect=False: introspecting is a call of its own, with D-Bus's
+            # 25-second default timeout.
+            manager = dbus.Interface(dbus.SystemBus().get_object("org.bluez", "/", introspect=False),
                                      "org.freedesktop.DBus.ObjectManager")
             found = manager.GetManagedObjects(timeout=5)
         except Exception:  # no BlueZ, no adapter, no python3-dbus
@@ -250,7 +254,9 @@ class Bluetooth:
         return obj.get(iface, {})
 
     def status(self):
-        if not shutil.which("bluetoothctl"):
+        # Without an adapter, BlueZ never starts (its service requires one), and
+        # asking it over D-Bus waits for it to start: check the kernel instead.
+        if not shutil.which("bluetoothctl") or not any(Path("/sys/class/bluetooth").glob("hci*")):
             return {"available": False}
         objects = self.objects()
         adapter = next((self.props(o, "org.bluez.Adapter1") for o in objects.values()

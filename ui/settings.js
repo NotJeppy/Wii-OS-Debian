@@ -3,7 +3,7 @@
 // Wi-Fi and Bluetooth open pages of their own, which refresh while they're
 // open. Wi-Fi passwords are typed on the on-screen keyboard (osk.js).
 import { play } from "./sounds.js";
-import { $, api, make, setMode, updateFocus, views } from "./core.js";
+import { $, api, make, setMode, state, updateFocus, views } from "./core.js";
 
 let page = "main"; // main | wifi | bluetooth
 let rows = [];
@@ -19,6 +19,7 @@ let scanTimer = null;
 let forgetArmed = null; // the row key that Y was pressed on once
 let wifiError = {}; // ssid -> message from the last try
 let dialog = null; // { ssid, index } while the Wi-Fi password box is open
+let touched = false; // a key was pressed since Settings opened
 
 function hoursLabel(h) {
   if (!h) return "Never";
@@ -368,12 +369,23 @@ function save(changes) {
 
 export async function openSettings(cb) {
   callbacks = cb;
-  const [data] = await Promise.all([api("/api/settings").catch(() => null), loadNetwork()]);
+  touched = false;
+  const data = await api("/api/settings").catch(() => null);
   values = data?.values ?? { screensaver_hours: 2, suspend: true };
   hourChoices = data?.screensaver_hours ?? [0, 1, 2, 3, 4, 6];
   $("settings").hidden = false;
   setMode("settings");
   openPage("main");
+  // Wi-Fi and Bluetooth can be slow to answer: open without them, and add
+  // their rows (or refresh last time's) once they do.
+  loadNetwork().then(() => {
+    if (state.mode !== "settings" || page !== "main" || $("settings").hidden) return;
+    if (!touched) {
+      rows = []; // nobody has moved yet: start on the top row, now Wi-Fi
+      index = 0;
+    }
+    render();
+  });
   // Home closes channels in wiid; Settings lives in this page, so watch for it.
   const start = (await api("/api/state").catch(() => ({}))).home_presses;
   homeTimer = setInterval(async () => {
@@ -417,6 +429,7 @@ views.settings = {
     return $("settings-list").children[index] ?? null;
   },
   key(k) {
+    touched = true;
     if (dialog) return dialogKey(k);
     const row = rows[index];
     if (k.dir && k.dir[1]) {
