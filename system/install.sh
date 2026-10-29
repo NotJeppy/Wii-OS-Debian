@@ -27,12 +27,13 @@ sed -i 's/^deb cdrom:/# deb cdrom:/' /etc/apt/sources.list 2>/dev/null || true
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   cage chromium \
-  python3 python3-evdev \
+  python3 python3-evdev python3-dbus \
   dbus-user-session libpam-systemd \
   pipewire pipewire-pulse pipewire-alsa wireplumber rtkit \
   mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri \
   fonts-quicksand fonts-noto-core fonts-noto-color-emoji \
-  grim flatpak wget ca-certificates
+  grim flatpak wget ca-certificates \
+  network-manager bluez libspa-0.2-bluetooth rfkill
 
 echo "==> Google Chrome (has the Widevine DRM that Netflix, Hulu and Disney+ need)"
 if ! dpkg -s google-chrome-stable >/dev/null 2>&1; then
@@ -57,6 +58,26 @@ EOF
 modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
+
+echo "==> Wi-Fi and Bluetooth (the Settings channel)"
+usermod -aG netdev,bluetooth "$USER_NAME"
+# Lets the TV user join and forget networks without a password prompt.
+mkdir -p /etc/polkit-1/rules.d
+cat > /etc/polkit-1/rules.d/50-wii-os.rules <<EOF
+polkit.addRule(function (action, subject) {
+  if (subject.user == "$USER_NAME" && action.id.indexOf("org.freedesktop.NetworkManager.") == 0) {
+    return polkit.Result.YES;
+  }
+});
+EOF
+# Wi-Fi power saving adds lag (bad for game streaming) and, on some chips,
+# drops the multicast that finding wii-os.local on the network relies on.
+mkdir -p /etc/NetworkManager/conf.d
+printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/wii-os.conf
+rfkill unblock bluetooth 2>/dev/null || true
+# NetworkManager leaves alone anything the installer set up in
+# /etc/network/interfaces, so Settings couldn't change it: move it over.
+python3 "$OS_DIR/system/move-network.py"
 
 echo "==> Auto-login on the TV (tty1)"
 mkdir -p /etc/systemd/system/getty@tty1.service.d

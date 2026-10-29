@@ -32,7 +32,7 @@ A Wii-style TV menu that runs as a whole operating system on a PC, built on Debi
 | Right stick | Pointer in the Internet channel; A clicks where it points |
 | Home | Close the channel and return to the menu (in Moonlight, hold it for a second) |
 
-The menu starts with YouTube, the **Channel Shop** and **Settings** (screen saver delay, and suspend: Home pauses a channel so you can pick up where you left off within 30 minutes). Get more channels (Twitch, Plex, Moonlight, Internet, Netflix, Disney+, Hulu) from the shop. Moonlight streams games from your PC, which needs [Sunshine](https://github.com/LizardByte/Sunshine) installed. Updates and new channels are recorded in your messages, under the envelope button.
+The menu starts with YouTube, the **Channel Shop** and **Settings** (Wi-Fi, Bluetooth pairing for controllers, keyboards and headphones, screen saver delay, and suspend: Home pauses a channel so you can pick up where you left off within 30 minutes). Get more channels (Twitch, Plex, Moonlight, Internet, Netflix, Disney+, Hulu) from the shop. Moonlight streams games from your PC, which needs [Sunshine](https://github.com/LizardByte/Sunshine) installed. Updates and new channels are recorded in your messages, under the envelope button.
 
 No keyboard needed: on Netflix, Disney+, Hulu and the Internet channel, move to a text field and press **A** (or click it with the pointer) to bring up the on-screen keyboard (**B** closes it, **X** deletes, **Y** is shift). On Linux these services usually limit video to 720p.
 

@@ -319,7 +319,13 @@ html, body {
 #settings header { position: absolute; left: 110px; top: 50px; display: flex; align-items: center; gap: 36px; }
 #settings header .gear-logo { font-size: 110px; }
 #settings h1 { margin: 0; font-size: 80px; font-weight: 700; color: var(--ink); }
-#settings-list { position: absolute; left: 110px; right: 110px; top: 230px; display: flex; flex-direction: column; gap: 26px; }
+/* Scrolls when there are more rows than fit; the padding keeps the focused
+   row's glow from being cut off. */
+#settings-list {
+  position: absolute; left: 90px; right: 90px; top: 210px; bottom: 120px;
+  padding: 20px; display: flex; flex-direction: column; gap: 26px;
+  overflow: hidden;
+}
 .set-row {
   display: flex;
   align-items: center;
@@ -332,6 +338,10 @@ html, body {
   box-shadow: 0 4px 12px rgba(0,0,0,0.06);
   transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s;
 }
+.set-row { flex-shrink: 0; }
+.set-row.compact { min-height: 120px; padding: 18px 46px; }
+.set-row.compact .set-title { font-size: 40px; }
+.set-row.compact .set-text { font-size: 26px; margin-top: 4px; }
 .set-row.focused {
   border-color: var(--blue);
   transform: scale(1.015);
@@ -344,6 +354,39 @@ html, body {
 .set-current { min-width: 260px; text-align: center; }
 .set-arrow { font-size: 30px; color: var(--ink-soft); }
 .set-row:not(.focused) .set-arrow { visibility: hidden; }
+.set-chevron { font-size: 64px; line-height: 1; color: var(--ink-soft); margin-left: 10px; }
+.lock { font-size: 34px; }
+.bars { display: inline-flex; align-items: flex-end; gap: 6px; height: 44px; }
+.bars i { width: 12px; border-radius: 4px; background: #d3d5da; }
+.bars i:nth-child(1) { height: 25%; }
+.bars i:nth-child(2) { height: 50%; }
+.bars i:nth-child(3) { height: 75%; }
+.bars i:nth-child(4) { height: 100%; }
+.bars i.lit { background: #1b8fd1; }
+.bt-state { font-size: 32px; color: var(--ink-soft); }
+.bt-state.on { color: #1b8fd1; }
+#set-dialog {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; justify-content: center; align-items: flex-start; padding-top: 150px;
+  background: rgba(30, 34, 40, 0.45);
+}
+.set-dialog-box {
+  width: 1100px; padding: 50px 60px; border-radius: 40px; background: #fff;
+  border: 5px solid var(--blue); box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  display: flex; flex-direction: column; gap: 26px;
+}
+#set-password-box { border-radius: 24px; border: 4px solid var(--tile-border); padding: 6px; }
+#set-password-box.focused { border-color: var(--blue); box-shadow: 0 0 0 6px var(--blue-soft); }
+#set-password {
+  width: 100%; box-sizing: border-box; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 40px; padding: 14px 20px; color: var(--ink);
+}
+#set-connect {
+  align-self: center; min-width: 360px; padding: 22px 40px; border-radius: 50px;
+  border: 4px solid var(--tile-border); background: linear-gradient(#fff, #e8eaee);
+  font: inherit; font-size: 40px; font-weight: 700; color: var(--ink);
+}
+#set-connect.focused { border-color: var(--blue); box-shadow: 0 0 0 6px var(--blue-soft); }
 #settings footer { position: absolute; left: 110px; bottom: 46px; font-size: 36px; color: var(--ink); display: flex; align-items: center; gap: 18px; }
 #settings footer .key-b { width: 60px; height: 60px; font-size: 36px; }
 

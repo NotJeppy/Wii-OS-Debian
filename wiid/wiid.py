@@ -24,6 +24,7 @@ from evdev import UInput, ecodes as e
 from devtools import launch_with_scripts
 from home import Home
 from messages import Messages
+from network import Bluetooth, Wifi
 from settings import Settings
 from updates import Updater
 
@@ -349,6 +350,8 @@ MESSAGES = Messages(STATE_DIR)
 HOME = Home(CHANNELS_FILE, STATE_DIR, log, MESSAGES)
 # After an update, exit: cage exits with us and getty starts the new version.
 UPDATER = Updater(ROOT, STATE_DIR, log, MESSAGES, on_installed=lambda: os.kill(os.getpid(), signal.SIGTERM))
+WIFI = Wifi(log)
+BLUETOOTH = Bluetooth(log)
 
 
 def system_info():
@@ -408,6 +411,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(UPDATER.state())
         elif self.path == "/api/settings":
             self.send_json(SETTINGS.describe())
+        elif self.path == "/api/wifi":
+            self.send_json(WIFI.status())
+        elif self.path == "/api/bluetooth":
+            self.send_json(BLUETOOTH.status())
         elif self.path == "/api/update?all=1":  # including a declined version
             self.send_json(UPDATER.state(include_declined=True))
         else:
@@ -417,6 +424,10 @@ class Handler(SimpleHTTPRequestHandler):
         body = self.read_json()
         if self.path == "/api/update/check":
             self.send_json(UPDATER.check_now())
+            return
+        if self.path == "/api/wifi/connect":  # waits until it has connected or failed
+            result = WIFI.connect(body.get("ssid"), body.get("password") or None)
+            self.send_json(result, 200 if result["ok"] else 400)
             return
         if self.path == "/api/update/decline":
             UPDATER.decline()
@@ -442,6 +453,19 @@ class Handler(SimpleHTTPRequestHandler):
         elif self.path == "/api/go-home":
             SESSION.home()
             ok = True
+        elif self.path == "/api/wifi/on":
+            ok = WIFI.set_on(bool(body.get("on")))
+        elif self.path == "/api/wifi/scan":
+            ok = WIFI.scan()
+        elif self.path == "/api/wifi/forget":
+            ok = WIFI.forget(body.get("ssid"))
+        elif self.path == "/api/bluetooth/on":
+            ok = BLUETOOTH.set_on(bool(body.get("on")))
+        elif self.path == "/api/bluetooth/scan":
+            ok = BLUETOOTH.scan()
+        elif self.path in ("/api/bluetooth/pair", "/api/bluetooth/connect",
+                           "/api/bluetooth/disconnect", "/api/bluetooth/forget"):
+            ok = getattr(BLUETOOTH, self.path.rsplit("/", 1)[1])(body.get("address"))
         elif self.path == "/api/power":
             ok = power(body.get("action"))
         else:

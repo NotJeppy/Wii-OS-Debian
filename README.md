@@ -44,14 +44,74 @@ minutes, or as soon as you open a different channel. Moonlight is never
 paused, since a frozen game stream would drop. Suspend can be turned off in
 **Settings**.
 
-**Settings** is on every menu and can't be deleted. It has the screen saver
-delay (never, or 1 to 6 hours without a button press; sound playing counts as
-activity) and the suspend switch. The screen saver is a dark screen with the
-logo and clock drifting slowly, so nothing burns in. Any button wakes it, and
-that press doesn't reach the app underneath.
+**Settings** is on every menu and can't be deleted. It has:
+
+- **Wi-Fi** (when the PC has it): the network you're on, and every network
+  nearby with its signal strength. A joins one, and secured networks ask for
+  the password on the on-screen keyboard. Y on a saved network forgets it
+  (press Y twice). Work and school networks that need a username aren't
+  supported yet.
+- **Bluetooth** (when the PC has it): put a controller, keyboard or headphones
+  in pairing mode and it shows up; A pairs it. Paired devices stay listed: A
+  connects or disconnects one, Y (twice) forgets it. Paired controllers
+  reconnect by themselves when you turn them on. A keyboard that needs a code
+  shows it on screen to type.
+- The screen saver delay (never, or 1 to 6 hours without a button press; sound
+  playing counts as activity). The screen saver is a dark screen with the logo
+  and clock drifting slowly, so nothing burns in. Any button wakes it, and that
+  press doesn't reach the app underneath.
+- The suspend switch.
 
 The envelope button holds your messages: a permanent record of updates offered
 and installed and channels added. A red dot means some are unread.
+
+## Supported devices
+
+**Tested** means someone ran it on that device. **Should work** means the
+Linux drivers are there, but nobody has tried it with Wii-OS yet. Reports
+either way are welcome.
+
+### Computers
+
+| Device | Status |
+|---|---|
+| MINISFORUM UM580D (Ryzen 7 5800H, Radeon graphics, MediaTek MT7921K Wi-Fi and Bluetooth, Intel I225-V Ethernet) | Tested |
+| VMware virtual machine | Tested, with software rendering (slow but usable) |
+| Other 64-bit Intel or AMD PCs, 4 GB of RAM or more | Should work. Without a supported GPU, Wii-OS falls back to software rendering |
+
+### Controllers
+
+| Device | Status |
+|---|---|
+| 8BitDo Ultimate 2C Wireless (2.4 GHz USB receiver) | Tested |
+| Xbox-style controllers over USB or their USB receiver | Should work |
+| Xbox Wireless, PlayStation DualShock 4 and DualSense over Bluetooth (Settings → Bluetooth) | Should work, untested |
+
+### Keyboards and remotes
+
+| Device | Status |
+|---|---|
+| USB keyboards | Tested |
+| Bluetooth keyboards (Settings → Bluetooth) | Should work, untested |
+| Bluetooth TV remotes that act as a keyboard (many Android TV style remotes) | Arrows, OK and Back should work after pairing, untested. Their Home button doesn't return to the menu yet |
+| Roku remotes | Not supported yet (see below) |
+
+**About Roku remotes.** A Roku **simple remote** is infrared, so the PC would
+need an IR receiver, such as a USB one that turns remote buttons into key
+presses. A Roku **voice or enhanced remote** talks to the Roku over
+Wi-Fi Direct: the Roku runs a small private network of its own (it shows up
+as `DIRECT-roku-…`) and the remote joins it. The remote's protocol on that
+network isn't public, so supporting it means reverse engineering it first.
+What is public is Roku's **External Control Protocol**, which the Roku phone
+app uses over your home network. Wii-OS could answer it, so the Roku app would
+work as a remote. That's planned.
+
+### Audio
+
+| Device | Status |
+|---|---|
+| TV speakers over HDMI | Tested |
+| Bluetooth headphones and speakers (Settings → Bluetooth) | Should work, untested |
 
 ## Install
 
@@ -95,6 +155,13 @@ the disk you choose, and it needs an internet connection.
   (12 slots per page, channel id or empty) and handles getting and deleting
   channels. New users start with YouTube and the built-in Channel Shop and
   Settings, which every layout keeps.
+- `wiid/network.py` is Settings' Wi-Fi (NetworkManager, through `nmcli`) and
+  Bluetooth (BlueZ: state over D-Bus, and a long-running `bluetoothctl` that
+  also answers pairing questions). `install.sh` lets the TV user change
+  networks without a password, and `system/move-network.py` moves the Wi-Fi
+  network the Debian installer set up over to NetworkManager, so it shows in
+  Settings (the old setup comes back if NetworkManager isn't online within a
+  minute).
 - `wiid/settings.py` keeps the Settings channel's options in
   `~/.local/share/wii-os/settings.json`. `wiid.py` pauses channels with
   SIGSTOP on their whole process tree, and shows `ui/screensaver.html` in a

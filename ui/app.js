@@ -538,6 +538,8 @@ views.welcome = {
 };
 
 addEventListener("keydown", (ev) => {
+  // Typing into a field (the Wi-Fi password) with a real keyboard.
+  if (ev.target instanceof HTMLInputElement && !["ArrowUp", "ArrowDown", "Escape", "Enter"].includes(ev.key)) return;
   ev.preventDefault();
   const k = keyOf(ev);
   if (k.repeat && !k.dir && !k.page) return; // only movement auto-repeats

@@ -88,10 +88,18 @@
   <section id="settings" hidden>
     <header>
       <span class="gear-logo"></span>
-      <h1>Settings</h1>
+      <h1 id="settings-title">Settings</h1>
     </header>
     <div id="settings-list"></div>
-    <footer><span class="key-b">B</span> Back to the menu</footer>
+    <footer><span class="key-b">B</span> <span id="settings-hint">Back to the menu</span></footer>
+    <div id="set-dialog" hidden>
+      <form id="set-dialog-form" class="set-dialog-box" autocomplete="off">
+        <div id="set-dialog-title" class="set-title"></div>
+        <div id="set-password-box" data-hand="0.93,0.6"><input id="set-password" type="text" spellcheck="false" autocapitalize="off" placeholder="Press A to type the password"></div>
+        <div id="set-dialog-note" class="set-text">Press A to type with the on-screen keyboard. Its Enter key connects.</div>
+        <button id="set-connect" type="submit" tabindex="-1" data-hand="0.8,0.6">Connect</button>
+      </form>
+    </div>
   </section>
 
   <div id="hand" aria-hidden="true">
@@ -128,6 +136,7 @@
   </section>
 
 </div>
+<script src="osk.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>
