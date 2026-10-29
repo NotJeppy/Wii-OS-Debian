@@ -1,4 +1,4 @@
-![Wii-OS](https://raw.githubusercontent.com/NotJeppy/Playlist-Ids/a167a0bc285c28dae24561f6b2c10c8f44bfaaab/jeppy/tv.png)
+![Wii-OS](https://raw.githubusercontent.com/NotJeppy/Playlist-Ids/refs/heads/main/jeppy/tv.png)
 
 # Wii-OS
 
