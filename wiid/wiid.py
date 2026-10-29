@@ -214,7 +214,7 @@ class Session:
         # Only the first menu of a session shows the welcome screen.
         url = MENU_URL if self.menu_starts == 0 else MENU_URL + "?return=1"
         log("starting menu")
-        self.menu = chromium("menu", url)
+        self.menu = chromium("menu", url, scripts=["volume.js"])
         self.menu_starts += 1
 
     def _controls(self, channel):
@@ -256,7 +256,7 @@ class Session:
             extra.append("--enable-spatial-navigation")  # arrow keys move between links
         # Google Chrome carries Widevine DRM; Debian's Chromium does not.
         browser = "google-chrome-stable" if channel.get("drm") else "chromium"
-        scripts = []
+        scripts = ["volume.js"]  # shows the volume when it changes
         if channel.get("keyboard"):
             scripts.append("osk.js")  # on-screen keyboard for ordinary web forms
         if channel.get("browsing"):
@@ -296,6 +296,15 @@ class Session:
             self.menu_wanted = True
             stop(self.menu)  # run() starts a fresh one
             self.menu = None
+
+    def show_volume(self, percent, muted):
+        """Draws the volume over whatever is on screen (ui/volume.js). Native
+        apps have no page to draw on, so they show nothing."""
+        with self.lock:
+            proc = self.current.proc if self.current else self.menu
+        devtools = getattr(proc, "devtools", None)
+        if devtools:
+            devtools.call("__wiiVolume", percent, muted)
 
     def state(self):
         with self.lock:
@@ -736,6 +745,120 @@ def read_gamepad(path, keyboard, active):
         active.discard(path)
 
 
+# TV remote and keyboard keys -> the controller's keys. Remotes send TV keys
+# (Select, Back, Menu) that the menu and channels don't know.
+REMOTE_KEYS = {
+    e.KEY_SELECT: e.KEY_ENTER,
+    e.KEY_OK: e.KEY_ENTER,
+    e.KEY_PLAYPAUSE: e.KEY_ENTER,  # Play/Pause: a second OK
+    e.KEY_BACK: e.KEY_ESC,
+    e.KEY_MENU: e.KEY_Y,           # Menu: channel options
+    e.KEY_COMPOSE: e.KEY_Y,        # what many remotes' Menu button sends
+}
+VOLUME_KEYS = {
+    e.KEY_VOLUMEUP: ["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"],
+    e.KEY_VOLUMEDOWN: ["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"],
+    e.KEY_MUTE: ["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"],
+}
+
+
+class Volume:
+    """Volume changes, made one at a time by wpctl and then shown on screen.
+    At most two wait, so a held button stops soon after it's let go."""
+
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.todo = []
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def press(self, key):
+        with self.cond:
+            if len(self.todo) < 2:
+                self.todo.append(VOLUME_KEYS[key])
+                self.cond.notify()
+
+    def _run(self):
+        while True:
+            with self.cond:
+                while not self.todo:
+                    self.cond.wait()
+                args = self.todo.pop(0)
+            try:
+                subprocess.run(["wpctl", *args], timeout=3)
+                # "Volume: 0.55", or "Volume: 0.55 [MUTED]"
+                out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+                                     capture_output=True, text=True, timeout=3).stdout
+                percent = round(float(out.split()[1]) * 100)
+            except (OSError, subprocess.TimeoutExpired, IndexError, ValueError):
+                continue
+            SESSION.show_volume(percent, "MUTED" in out)
+
+
+VOLUME = Volume()
+
+
+def is_keyboard(dev):
+    keys = dev.capabilities().get(e.EV_KEY, [])
+    return (e.KEY_ENTER in keys or e.KEY_SELECT in keys) and not dev.name.startswith("wii-os ")
+
+
+def read_keyboard(path, active):
+    """A keyboard or TV remote, passed on through a copy of itself with the
+    remote keys swapped for the controller's. Back held for HOME_HOLD is Home,
+    for remotes without a Home button (a tap is Esc, on release)."""
+    try:
+        dev = evdev.InputDevice(path)
+        keys = set(dev.capabilities()[e.EV_KEY]) | set(REMOTE_KEYS.values())
+        copy = UInput({e.EV_KEY: sorted(keys)}, name="wii-os keyboard")
+        dev.grab()
+    except OSError as err:
+        log(f"cannot open {path}: {err}")
+        active.discard(path)
+        return
+    log(f"keyboard connected: {dev.name}")
+    swallowed = set()  # keys whose press only woke the screen saver
+    back = None  # timer for a held Back
+
+    def send(key, value):
+        copy.write(e.EV_KEY, key, value)
+        copy.syn()
+
+    try:
+        for ev in dev.read_loop():
+            if ev.type != e.EV_KEY:
+                continue
+            if ev.value == 1 and SESSION.input_seen():
+                swallowed.add(ev.code)
+                continue
+            if ev.code in swallowed:
+                if ev.value == 0:
+                    swallowed.discard(ev.code)
+                continue
+            if ev.code in (e.KEY_HOMEPAGE, e.KEY_POWER):  # Power is a Home button too
+                if ev.value == 1:
+                    threading.Thread(target=SESSION.home, daemon=True).start()
+            elif ev.code == e.KEY_BACK:
+                if ev.value == 1:
+                    back = threading.Timer(HOME_HOLD, SESSION.home)
+                    back.start()
+                elif ev.value == 0 and back and not back.finished.is_set():
+                    back.cancel()  # a tap, not a hold
+                    send(e.KEY_ESC, 1)
+                    send(e.KEY_ESC, 0)
+            elif ev.code in VOLUME_KEYS:
+                if ev.value in (1, 2):
+                    VOLUME.press(ev.code)
+            else:
+                send(REMOTE_KEYS.get(ev.code, ev.code), ev.value)
+    except OSError:
+        log(f"keyboard disconnected: {dev.name}")
+    finally:
+        if back:
+            back.cancel()
+        copy.close()
+        active.discard(path)
+
+
 def watch_gamepads():
     keyboard = Keyboard()
     CONTROLLERS.keyboard = keyboard
@@ -747,12 +870,16 @@ def watch_gamepads():
             try:
                 dev = evdev.InputDevice(path)
                 pad = is_gamepad(dev) and dev.name != keyboard.ui.name
+                keys = not pad and is_keyboard(dev)
                 dev.close()
             except OSError:
                 continue
             if pad:
                 active.add(path)
                 threading.Thread(target=read_gamepad, args=(path, keyboard, active), daemon=True).start()
+            elif keys:
+                active.add(path)
+                threading.Thread(target=read_keyboard, args=(path, active), daemon=True).start()
         time.sleep(2)
 
 

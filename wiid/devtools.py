@@ -5,7 +5,8 @@ commands on fd 3 and writes replies and events on fd 4, as NUL-terminated
 JSON. A pipe, unlike a debugging port, is reachable only by wiid.
 
 The scripts can talk back: each page's isolated world gets a function
-__wiiNotify(json) whose calls arrive here and go to `on_message`.
+__wiiNotify(json) whose calls arrive here and go to `on_message`, and wiid can
+call functions the scripts define with `proc.devtools.call(...)`.
 """
 import json
 import os
@@ -39,6 +40,7 @@ def launch_with_scripts(cmd, sources, log, on_message=None):
     os.close(from_chrome_w)
     session = _Injector(to_chrome_w, from_chrome_r, sources, log, on_message)
     threading.Thread(target=session.run, daemon=True).start()
+    proc.devtools = session
     return proc
 
 
@@ -51,16 +53,26 @@ class _Injector:
         self.on_message = on_message
         self.next_id = 0
         self.attached = set()
+        self.pages = {}  # session -> its page's target id (the main frame's id too)
+        self.worlds = {}  # session -> our isolated world in that page's main frame
+        self.lock = threading.Lock()  # wiid's threads send too, through call()
 
     def send(self, method, params=None, session=None):
-        self.next_id += 1
-        msg = {"id": self.next_id, "method": method, "params": params or {}}
-        if session:
-            msg["sessionId"] = session
-        try:
-            self.out.write(json.dumps(msg).encode() + b"\0")
-        except OSError:
-            pass  # Chrome has exited
+        with self.lock:
+            self.next_id += 1
+            msg = {"id": self.next_id, "method": method, "params": params or {}}
+            if session:
+                msg["sessionId"] = session
+            try:
+                self.out.write(json.dumps(msg).encode() + b"\0")
+            except (OSError, ValueError):
+                pass  # Chrome has exited
+
+    def call(self, function, *args):
+        """Calls window.<function>(*args) in our world of every top-level page."""
+        expression = f"window.{function} && window.{function}(...{json.dumps(args)})"
+        for session, context in list(self.worlds.items()):
+            self.send("Runtime.evaluate", {"expression": expression, "contextId": context}, session)
 
     def run(self):
         # Hear about every page and iframe, existing ones included.
@@ -96,6 +108,8 @@ class _Injector:
                 self.send("Target.attachToTarget", {"targetId": info["targetId"], "flatten": True})
         elif method == "Target.attachedToTarget":
             session = params["sessionId"]
+            if params["targetInfo"]["type"] == "page":
+                self.pages[session] = params["targetInfo"]["targetId"]
             self.log(f"devtools: injecting into {params['targetInfo']['type']} {params['targetInfo']['url'][:60]}")
             # Without Page.enable, the script reaches only the current document,
             # not the ones the tab navigates to afterwards.
@@ -110,6 +124,14 @@ class _Injector:
                     "runImmediately": True,
                 }, session)
             self.send("Runtime.runIfWaitingForDebugger", {}, session)
+        elif method == "Runtime.executionContextCreated":
+            context = params["context"]
+            frame = (context.get("auxData") or {}).get("frameId")
+            if context.get("name") == WORLD and frame and frame == self.pages.get(msg.get("sessionId")):
+                self.worlds[msg["sessionId"]] = context["id"]
+        elif method == "Target.detachedFromTarget":
+            self.pages.pop(params.get("sessionId"), None)
+            self.worlds.pop(params.get("sessionId"), None)
         elif method == "Runtime.bindingCalled":
             if params.get("name") == "__wiiNotify" and self.on_message:
                 try:

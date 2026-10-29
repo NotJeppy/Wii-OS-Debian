@@ -10,8 +10,7 @@ Netflix, Disney+ and Hulu.
 
 Not affiliated with or endorsed by Nintendo. No Nintendo assets are used:
 everything is drawn in code and the menu sounds are synthesized. The Channel
-Shop's music (`ui/sounds/shop.mp3`) is an original cover made for this
-project, not official Nintendo music.
+Shop's music (`ui/sounds/shop.mp3`) is a cover , not official Nintendo music.
 
 ## Controls
 
@@ -93,18 +92,16 @@ either way are welcome.
 |---|---|
 | USB keyboards | Tested |
 | Bluetooth keyboards (Settings → Bluetooth) | Should work, untested |
-| Bluetooth TV remotes that act as a keyboard (many Android TV style remotes) | Arrows, OK and Back should work after pairing, untested. Their Home button doesn't return to the menu yet |
-| Roku remotes | Not supported yet (see below) |
+| Air-mouse TV remote with a USB receiver (shows up as "ZhenYe Tech BLE Remote") | Tested | [Link to remote](https://www.amazon.com/dp/B0BWWLJJ6B) |
+| Here's the link to this specific device, which I know works, because I bought it and set it up for this project. |
+| Other TV remotes that act as a keyboard, over USB or Bluetooth (many Android TV style remotes) | Should work, untested |
 
-**About Roku remotes.** A Roku **simple remote** is infrared, so the PC would
-need an IR receiver, such as a USB one that turns remote buttons into key
-presses. A Roku **voice or enhanced remote** talks to the Roku over
-Wi-Fi Direct: the Roku runs a small private network of its own (it shows up
-as `DIRECT-roku-…`) and the remote joins it. The remote's protocol on that
-network isn't public, so supporting it means reverse engineering it first.
-What is public is Roku's **External Control Protocol**, which the Roku phone
-app uses over your home network. Wii-OS could answer it, so the Roku app would
-work as a remote. That's planned.
+On a remote, OK and Play/Pause are A, Back is B (hold it for a second for
+Home), Menu is Y, and Home and Power both go home. The volume buttons change
+the PC's volume and show it in the top corner (over the menu and web
+channels, not over Plex or Moonlight). If OK does nothing, the remote is
+probably in mouse mode: switch that off.
+| Roku remotes | Not supported yet |
 
 ### Audio
 
@@ -132,6 +129,8 @@ the disk you choose, and it needs an internet connection.
   browser running, launches channels on top of it, and turns controllers into
   keyboard input (D-pad/stick = arrows, A = Enter, B = Escape, X = `x`,
   Y = `y`, bumpers = PageUp/PageDown). Home closes the running channel.
+  Keyboards and remotes pass through a copy of themselves, with TV keys
+  (Select, Back, Menu, Home, volume) swapped for those.
 - `wiid/channels.json` is the shop's catalog. A channel is either a web page
   or a native app:
   - `url`: the page, opened in its own browser profile
